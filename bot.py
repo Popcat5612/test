@@ -561,11 +561,6 @@ class GuildMusicState:
             return
 
         self._schedule_idle_disconnect_locked()
-<<<<<<< HEAD
-        if refresh_panel:
-            await self._refresh_control_panel_locked()
-=======
->>>>>>> 8fc197958d29c1f1440da89c8ac3414518ef6d51
 
     async def _after_track(self, error: Exception | None, generation: int) -> None:
         if error:
