@@ -333,20 +333,24 @@ class GuildMusicState:
             return
 
         embed = self._player_embed_locked()
-        view = self.bot.controls_view
-
         try:
             if self.control_message is None:
                 if self.text_channel is None:
                     return
-                self.control_message = await self.text_channel.send(embed=embed, view=view)
+                self.control_message = await self.text_channel.send(
+                    embed=embed,
+                    view=MusicControlsView(),
+                )
                 return
 
-            await self.control_message.edit(embed=embed, view=view)
+            await self.control_message.edit(embed=embed, view=MusicControlsView())
         except discord.NotFound:
             self.control_message = None
             if self.text_channel is not None:
-                self.control_message = await self.text_channel.send(embed=embed, view=view)
+                self.control_message = await self.text_channel.send(
+                    embed=embed,
+                    view=MusicControlsView(),
+                )
         except discord.DiscordException:
             LOGGER.exception("Failed to refresh music control panel")
 
@@ -458,8 +462,9 @@ class MusicBot(commands.Bot):
         self.controls_view: discord.ui.View | None = None
 
     async def setup_hook(self) -> None:
-        if self.controls_view is not None:
-            self.add_view(self.controls_view)
+        self.controls_view = MusicControlsView()
+        self.add_view(self.controls_view)
+        LOGGER.info("Registered music control buttons")
 
         if DISCORD_GUILD_ID:
             try:
@@ -545,9 +550,35 @@ class PlayQueryModal(discord.ui.Modal, title="음악 재생"):
         await interaction.followup.send(enqueue_result_message(track, position), ephemeral=True)
 
 
+async def send_interaction_error(
+    interaction: discord.Interaction,
+    message: str = "버튼 처리 중 오류가 발생했어요. 콘솔 로그를 확인해 주세요.",
+) -> None:
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except discord.DiscordException:
+        LOGGER.exception("Failed to send interaction error message")
+
+
 class MusicControlsView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item,
+    ) -> None:
+        LOGGER.error(
+            "Music control failed for %s",
+            item,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        await send_interaction_error(interaction)
 
     @discord.ui.button(
         label="재생",
@@ -559,7 +590,10 @@ class MusicControlsView(discord.ui.View):
         interaction: discord.Interaction,
         _button: discord.ui.Button,
     ) -> None:
-        await interaction.response.send_modal(PlayQueryModal())
+        try:
+            await interaction.response.send_modal(PlayQueryModal())
+        except Exception as exc:
+            await self.on_error(interaction, exc, _button)
 
     @discord.ui.button(
         label="대기열",
@@ -576,6 +610,9 @@ class MusicControlsView(discord.ui.View):
             embed = await state.queue_embed()
         except MusicError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        except Exception as exc:
+            await self.on_error(interaction, exc, _button)
             return
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -598,6 +635,9 @@ class MusicControlsView(discord.ui.View):
             await state.refresh_control_panel(interaction.channel)
         except MusicError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        except Exception as exc:
+            await self.on_error(interaction, exc, _button)
             return
 
         message = "현재 곡을 건너뛰었어요." if skipped else "건너뛸 곡이 없어요."
@@ -627,6 +667,9 @@ class MusicControlsView(discord.ui.View):
         except MusicError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
+        except Exception as exc:
+            await self.on_error(interaction, exc, _button)
+            return
 
         await interaction.followup.send(message, ephemeral=True)
 
@@ -649,11 +692,11 @@ class MusicControlsView(discord.ui.View):
         except MusicError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
+        except Exception as exc:
+            await self.on_error(interaction, exc, _button)
+            return
 
         await interaction.followup.send("재생을 멈추고 음성 채널에서 나갔어요.", ephemeral=True)
-
-
-bot.controls_view = MusicControlsView()
 
 
 @bot.tree.command(name="재생", description="검색어나 URL을 대기열에 추가하고 재생합니다.")
