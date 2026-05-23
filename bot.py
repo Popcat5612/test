@@ -468,11 +468,7 @@ class GuildMusicState:
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)
         embed.add_field(name="대기열", value=queue_text, inline=False)
-<<<<<<< HEAD
-        embed.set_footer(text="곡 변경, 정지, 대기열 확인 때 패널이 갱신됩니다.")
-=======
         embed.set_footer(text="곡 신청, 대기열 확인, /현재곡 실행 때 패널이 갱신됩니다.")
->>>>>>> 8fc197958d29c1f1440da89c8ac3414518ef6d51
         return embed
 
     async def _refresh_control_panel_locked(self) -> None:
