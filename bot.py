@@ -42,7 +42,7 @@ YTDL_OPTIONS = {
     "socket_timeout": 15,
     "source_address": "0.0.0.0",
 
-    "cookiefile": "/opt/render/project/src/cookies.txt",
+    "cookiefile": "/etc/secrets/cookies.txt",
 
     "extractor_args": {
         "youtube": {
@@ -146,6 +146,8 @@ def youtube_watch_url(video_id: str) -> str:
 
 
 def extract_info(query: str) -> dict:
+    print("cookies exists:", os.path.exists("/etc/secrets/cookies.txt"))
+
     with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
         info = ydl.extract_info(normalize_query(query), download=False)
 
@@ -159,7 +161,6 @@ def extract_info(query: str) -> dict:
         return entries[0]
 
     return info
-
 
 def extract_autoplay_info(seed: Track) -> dict | None:
     source_id = seed.source_id or youtube_video_id_from_url(seed.webpage_url)
