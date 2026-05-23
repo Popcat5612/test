@@ -42,7 +42,8 @@ YTDL_OPTIONS = {
     "socket_timeout": 15,
     "source_address": "0.0.0.0",
 
-    # 추가
+    "cookiefile": "cookies.txt",
+
     "extractor_args": {
         "youtube": {
             "player_client": ["android"]
