@@ -42,13 +42,15 @@ YTDL_OPTIONS = {
     "socket_timeout": 15,
     "source_address": "0.0.0.0",
 
-    "cookiefile": "cookies.txt",
+    "cookiefile": "/opt/render/project/src/cookies.txt",
 
     "extractor_args": {
         "youtube": {
-            "player_client": ["android"]
+            "player_client": ["android", "web"]
         }
     },
+
+    "extractor_retries": 3,
 
     "http_headers": {
         "User-Agent": (
