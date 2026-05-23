@@ -147,6 +147,7 @@ def youtube_watch_url(video_id: str) -> str:
 
 def extract_info(query: str) -> dict:
     print("cookies exists:", os.path.exists("/etc/secrets/cookies.txt"))
+    print("using cookiefile:", YTDL_OPTIONS.get("cookiefile"))
 
     with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
         info = ydl.extract_info(normalize_query(query), download=False)
