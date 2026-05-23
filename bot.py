@@ -7,6 +7,7 @@ import shutil
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque
+from urllib.parse import parse_qs, urlparse
 
 import discord
 from discord import app_commands
@@ -40,6 +41,13 @@ YTDL_OPTIONS = {
     "source_address": "0.0.0.0",
 }
 
+AUTOPLAY_YTDL_OPTIONS = {
+    **YTDL_OPTIONS,
+    "extract_flat": "in_playlist",
+    "noplaylist": False,
+    "playlistend": 12,
+}
+
 
 class MusicError(Exception):
     """User-facing music command error."""
@@ -53,9 +61,13 @@ class Track:
     requester_id: int
     requester_name: str
     thumbnail: str | None = None
+    source_id: str | None = None
+    autoplay: bool = False
 
     @property
     def requester_mention(self) -> str:
+        if self.autoplay:
+            return "자동재생"
         return f"<@{self.requester_id}>"
 
 
@@ -70,11 +82,47 @@ def format_duration(seconds: int | None) -> str:
     return f"{minutes}:{sec:02d}"
 
 
+def parse_volume_percent(value: str) -> int:
+    value = value.strip().removesuffix("%").strip()
+    try:
+        percent = int(value)
+    except ValueError as exc:
+        raise MusicError("볼륨은 0부터 100 사이 숫자로 입력해 주세요.") from exc
+
+    if percent < 0 or percent > 100:
+        raise MusicError("볼륨은 0부터 100 사이로 설정할 수 있어요.")
+    return percent
+
+
 def normalize_query(query: str) -> str:
     query = query.strip()
     if query.startswith(("http://", "https://")):
         return query
     return f"ytsearch1:{query}"
+
+
+def youtube_video_id_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+
+    parsed = urlparse(url)
+    if parsed.netloc.endswith("youtu.be"):
+        return parsed.path.strip("/") or None
+
+    if "youtube.com" in parsed.netloc:
+        query = parse_qs(parsed.query)
+        video_ids = query.get("v")
+        if video_ids:
+            return video_ids[0]
+
+        if parsed.path.startswith("/shorts/"):
+            return parsed.path.removeprefix("/shorts/").split("/", maxsplit=1)[0]
+
+    return None
+
+
+def youtube_watch_url(video_id: str) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def extract_info(query: str) -> dict:
@@ -93,6 +141,38 @@ def extract_info(query: str) -> dict:
     return info
 
 
+def extract_autoplay_info(seed: Track) -> dict | None:
+    source_id = seed.source_id or youtube_video_id_from_url(seed.webpage_url)
+    if not source_id:
+        return None
+
+    radio_url = f"{youtube_watch_url(source_id)}&list=RD{source_id}"
+    with yt_dlp.YoutubeDL(AUTOPLAY_YTDL_OPTIONS) as ydl:
+        info = ydl.extract_info(radio_url, download=False)
+
+    if not info:
+        return None
+
+    entries = [entry for entry in info.get("entries", []) if entry]
+    for entry in entries:
+        entry_id = entry.get("id") or youtube_video_id_from_url(entry.get("url"))
+        if not entry_id or entry_id == source_id:
+            continue
+
+        title = entry.get("title")
+        webpage_url = entry.get("webpage_url") or youtube_watch_url(entry_id)
+        if title and webpage_url:
+            return {
+                "id": entry_id,
+                "title": title,
+                "webpage_url": webpage_url,
+                "duration": entry.get("duration"),
+                "thumbnail": entry.get("thumbnail"),
+            }
+
+    return None
+
+
 async def build_track(query: str, requester: discord.abc.User) -> Track:
     info = await asyncio.to_thread(extract_info, query)
     webpage_url = info.get("webpage_url") or info.get("original_url")
@@ -108,6 +188,25 @@ async def build_track(query: str, requester: discord.abc.User) -> Track:
         requester_id=requester.id,
         requester_name=requester.display_name,
         thumbnail=info.get("thumbnail"),
+        source_id=info.get("id") or youtube_video_id_from_url(webpage_url),
+    )
+
+
+async def build_autoplay_track(seed: Track, bot_user: discord.ClientUser | None) -> Track | None:
+    info = await asyncio.to_thread(extract_autoplay_info, seed)
+    if not info:
+        return None
+
+    requester_id = bot_user.id if bot_user is not None else seed.requester_id
+    return Track(
+        title=info["title"],
+        webpage_url=info["webpage_url"],
+        duration=info.get("duration"),
+        requester_id=requester_id,
+        requester_name="자동재생",
+        thumbnail=info.get("thumbnail"),
+        source_id=info.get("id") or youtube_video_id_from_url(info.get("webpage_url")),
+        autoplay=True,
     )
 
 
@@ -116,6 +215,11 @@ async def resolve_stream_url(track: Track) -> str:
     stream_url = info.get("url")
     if not stream_url:
         raise MusicError("오디오 스트림 주소를 찾지 못했어요.")
+
+    track.title = info.get("title") or track.title
+    track.duration = info.get("duration") or track.duration
+    track.thumbnail = info.get("thumbnail") or track.thumbnail
+    track.source_id = info.get("id") or track.source_id
     return stream_url
 
 
@@ -141,9 +245,11 @@ class GuildMusicState:
         self.voice: discord.VoiceClient | None = None
         self.text_channel: discord.abc.Messageable | None = None
         self.control_message: discord.Message | None = None
+        self.volume = 0.7
         self._lock = asyncio.Lock()
         self._idle_disconnect_task: asyncio.Task[None] | None = None
         self._generation = 0
+        self._skip_requested = False
 
     async def connect_to_user_channel(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
@@ -186,6 +292,7 @@ class GuildMusicState:
         async with self._lock:
             if not self._is_playing_or_paused() or self.voice is None:
                 return False
+            self._skip_requested = True
             self.voice.stop()
             return True
 
@@ -203,11 +310,33 @@ class GuildMusicState:
             self.voice.resume()
             return True
 
+    async def set_volume(
+        self,
+        percent: int,
+        text_channel: discord.abc.Messageable | None = None,
+    ) -> int:
+        if percent < 0 or percent > 100:
+            raise MusicError("볼륨은 0부터 100 사이로 설정할 수 있어요.")
+
+        async with self._lock:
+            self._set_text_channel_locked(text_channel)
+            self.volume = percent / 100
+
+            if self.voice and isinstance(self.voice.source, discord.PCMVolumeTransformer):
+                self.voice.source.volume = self.volume
+
+            return self.volume_percent
+
+    @property
+    def volume_percent(self) -> int:
+        return round(self.volume * 100)
+
     async def stop_and_leave(self) -> None:
         async with self._lock:
             self._generation += 1
             self.queue.clear()
             self.current = None
+            self._skip_requested = False
             self._cancel_idle_disconnect()
 
             voice = self.voice
@@ -227,6 +356,15 @@ class GuildMusicState:
         async with self._lock:
             self._set_text_channel_locked(text_channel)
             await self._refresh_control_panel_locked()
+
+    async def remember_control_panel_message(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        async with self._lock:
+            self._set_text_channel_locked(interaction.channel)
+            if isinstance(interaction.message, discord.Message):
+                self.control_message = interaction.message
 
     async def queue_embed(self) -> discord.Embed:
         async with self._lock:
@@ -296,20 +434,24 @@ class GuildMusicState:
 
         if self.current is None:
             embed.description = (
-                "**현재곡**\n"
+                "**현재곡**\n\n"
                 "재생 중인 곡이 없어요.\n\n"
-                "`재생` 버튼으로 검색어 또는 URL을 입력해 주세요."
+                "`재생` 버튼으로 검색어 또는 URL을 입력해 주세요.\n\n"
+                f"볼륨: `{self.volume_percent}%`"
             )
+            if not self.queue and self.bot.user is not None:
+                embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         else:
             embed.description = (
-                "**현재곡**\n"
+                "**현재곡**\n\n"
                 f"[{self.current.title}]({self.current.webpage_url})\n\n"
                 f"길이: `{format_duration(self.current.duration)}`\n"
                 f"요청: {self.current.requester_mention}\n"
-                f"상태: `{status}`"
+                f"상태: `{status}`\n"
+                f"볼륨: `{self.volume_percent}%`"
             )
             if self.current.thumbnail:
-                embed.set_thumbnail(url=self.current.thumbnail)
+                embed.set_image(url=self.current.thumbnail)
 
         if self.queue:
             lines = []
@@ -324,8 +466,9 @@ class GuildMusicState:
         else:
             queue_text = "대기 중인 곡이 없어요."
 
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
         embed.add_field(name="대기열", value=queue_text, inline=False)
-        embed.set_footer(text="아래 버튼으로 음악봇을 조작할 수 있어요.")
+        embed.set_footer(text="곡 변경, 정지, 대기열 확인 때 패널이 갱신됩니다.")
         return embed
 
     async def _refresh_control_panel_locked(self) -> None:
@@ -357,8 +500,23 @@ class GuildMusicState:
     def _is_playing_or_paused(self) -> bool:
         return bool(self.voice and (self.voice.is_playing() or self.voice.is_paused()))
 
-    async def _play_next_locked(self) -> None:
+    async def _play_next_locked(
+        self,
+        *,
+        autoplay_seed: Track | None = None,
+        refresh_panel: bool = False,
+    ) -> None:
         self.current = None
+
+        if not self.queue and autoplay_seed is not None:
+            try:
+                autoplay_track = await build_autoplay_track(autoplay_seed, self.bot.user)
+            except Exception:
+                LOGGER.exception("Failed to load autoplay track")
+                autoplay_track = None
+
+            if autoplay_track is not None:
+                self.queue.append(autoplay_track)
 
         while self.queue:
             track = self.queue.popleft()
@@ -385,7 +543,7 @@ class GuildMusicState:
                     before_options=FFMPEG_BEFORE_OPTIONS,
                     options=FFMPEG_OPTIONS,
                 ),
-                volume=0.7,
+                volume=self.volume,
             )
 
             loop = asyncio.get_running_loop()
@@ -398,10 +556,13 @@ class GuildMusicState:
 
             self.voice.play(audio, after=after_play)
             await self._send_now_playing(track)
+            if refresh_panel:
+                await self._refresh_control_panel_locked()
             return
 
         self._schedule_idle_disconnect_locked()
-        await self._refresh_control_panel_locked()
+        if refresh_panel:
+            await self._refresh_control_panel_locked()
 
     async def _after_track(self, error: Exception | None, generation: int) -> None:
         if error:
@@ -411,10 +572,19 @@ class GuildMusicState:
         async with self._lock:
             if generation != self._generation:
                 return
-            await self._play_next_locked()
+
+            finished_track = self.current
+            skip_requested = self._skip_requested
+            self._skip_requested = False
+            autoplay_seed = None if error or skip_requested else finished_track
+
+            await self._play_next_locked(
+                autoplay_seed=autoplay_seed,
+                refresh_panel=True,
+            )
 
     async def _send_now_playing(self, track: Track) -> None:
-        await self._refresh_control_panel_locked()
+        return
 
     async def _send_text(
         self,
@@ -550,6 +720,36 @@ class PlayQueryModal(discord.ui.Modal, title="음악 재생"):
         await interaction.followup.send(enqueue_result_message(track, position), ephemeral=True)
 
 
+class VolumeModal(discord.ui.Modal, title="볼륨 설정"):
+    percent = discord.ui.TextInput(
+        label="볼륨",
+        placeholder="0~100 사이 숫자",
+        default="70",
+        max_length=3,
+    )
+
+    def __init__(self, current_percent: int = 70) -> None:
+        super().__init__()
+        self.percent.default = str(current_percent)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
+        try:
+            volume = parse_volume_percent(str(self.percent.value))
+            state = get_state(interaction)
+            volume = await state.set_volume(volume, interaction.channel)
+        except MusicError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        except Exception:
+            LOGGER.exception("Unexpected volume modal failure")
+            await interaction.followup.send("볼륨을 변경하는 중 오류가 발생했어요.", ephemeral=True)
+            return
+
+        await interaction.followup.send(f"볼륨을 `{volume}%`로 설정했어요.", ephemeral=True)
+
+
 async def send_interaction_error(
     interaction: discord.Interaction,
     message: str = "버튼 처리 중 오류가 발생했어요. 콘솔 로그를 확인해 주세요.",
@@ -591,7 +791,11 @@ class MusicControlsView(discord.ui.View):
         _button: discord.ui.Button,
     ) -> None:
         try:
+            state = get_state(interaction)
+            await state.remember_control_panel_message(interaction)
             await interaction.response.send_modal(PlayQueryModal())
+        except MusicError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
         except Exception as exc:
             await self.on_error(interaction, exc, _button)
 
@@ -605,17 +809,21 @@ class MusicControlsView(discord.ui.View):
         interaction: discord.Interaction,
         _button: discord.ui.Button,
     ) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
         try:
             state = get_state(interaction)
+            await state.remember_control_panel_message(interaction)
+            await state.refresh_control_panel(interaction.channel)
             embed = await state.queue_embed()
         except MusicError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
+            await interaction.followup.send(str(exc), ephemeral=True)
             return
         except Exception as exc:
             await self.on_error(interaction, exc, _button)
             return
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(
         label="건너뛰기",
@@ -631,8 +839,8 @@ class MusicControlsView(discord.ui.View):
 
         try:
             state = get_state(interaction)
+            await state.remember_control_panel_message(interaction)
             skipped = await state.skip()
-            await state.refresh_control_panel(interaction.channel)
         except MusicError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
@@ -657,13 +865,13 @@ class MusicControlsView(discord.ui.View):
 
         try:
             state = get_state(interaction)
+            await state.remember_control_panel_message(interaction)
             paused = await state.pause()
             if paused:
                 message = "일시정지했어요."
             else:
                 resumed = await state.resume()
                 message = "다시 재생합니다." if resumed else "일시정지할 곡이 없어요."
-            await state.refresh_control_panel(interaction.channel)
         except MusicError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
@@ -687,6 +895,7 @@ class MusicControlsView(discord.ui.View):
 
         try:
             state = get_state(interaction)
+            await state.remember_control_panel_message(interaction)
             await state.stop_and_leave()
             await state.refresh_control_panel(interaction.channel)
         except MusicError as exc:
@@ -697,6 +906,26 @@ class MusicControlsView(discord.ui.View):
             return
 
         await interaction.followup.send("재생을 멈추고 음성 채널에서 나갔어요.", ephemeral=True)
+
+    @discord.ui.button(
+        label="볼륨",
+        style=discord.ButtonStyle.primary,
+        custom_id="music-controls:volume",
+        row=1,
+    )
+    async def volume_button(
+        self,
+        interaction: discord.Interaction,
+        _button: discord.ui.Button,
+    ) -> None:
+        try:
+            state = get_state(interaction)
+            await state.remember_control_panel_message(interaction)
+            await interaction.response.send_modal(VolumeModal(state.volume_percent))
+        except MusicError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+        except Exception as exc:
+            await self.on_error(interaction, exc, _button)
 
 
 @bot.tree.command(name="재생", description="검색어나 URL을 대기열에 추가하고 재생합니다.")
@@ -722,7 +951,6 @@ async def play(interaction: discord.Interaction, query: str) -> None:
 async def skip(interaction: discord.Interaction) -> None:
     state = get_state(interaction)
     skipped = await state.skip()
-    await state.refresh_control_panel(interaction.channel)
     message = "현재 곡을 건너뛰었어요." if skipped else "건너뛸 곡이 없어요."
     await interaction.response.send_message(message)
 
@@ -731,7 +959,6 @@ async def skip(interaction: discord.Interaction) -> None:
 async def pause(interaction: discord.Interaction) -> None:
     state = get_state(interaction)
     paused = await state.pause()
-    await state.refresh_control_panel(interaction.channel)
     message = "일시정지했어요." if paused else "일시정지할 곡이 없어요."
     await interaction.response.send_message(message)
 
@@ -740,9 +967,20 @@ async def pause(interaction: discord.Interaction) -> None:
 async def resume(interaction: discord.Interaction) -> None:
     state = get_state(interaction)
     resumed = await state.resume()
-    await state.refresh_control_panel(interaction.channel)
     message = "다시 재생합니다." if resumed else "다시 재생할 곡이 없어요."
     await interaction.response.send_message(message)
+
+
+@bot.tree.command(name="볼륨", description="음악봇 볼륨을 0부터 100 사이로 설정합니다.")
+@app_commands.rename(percent="크기")
+@app_commands.describe(percent="0부터 100 사이 볼륨")
+async def volume(
+    interaction: discord.Interaction,
+    percent: app_commands.Range[int, 0, 100],
+) -> None:
+    state = get_state(interaction)
+    volume_percent = await state.set_volume(percent, interaction.channel)
+    await interaction.response.send_message(f"볼륨을 `{volume_percent}%`로 설정했어요.")
 
 
 @bot.tree.command(name="정지", description="대기열을 비우고 음성 채널에서 나갑니다.")
@@ -764,6 +1002,7 @@ async def leave(interaction: discord.Interaction) -> None:
 @bot.tree.command(name="대기열", description="현재 대기열을 보여줍니다.")
 async def show_queue(interaction: discord.Interaction) -> None:
     state = get_state(interaction)
+    await state.refresh_control_panel(interaction.channel)
     embed = await state.queue_embed()
     await interaction.response.send_message(embed=embed)
 
@@ -781,6 +1020,7 @@ async def help_command(interaction: discord.Interaction) -> None:
     embed.add_field(name="/재생", value="검색어나 URL을 재생 대기열에 추가합니다.", inline=False)
     embed.add_field(name="/건너뛰기", value="현재 곡을 건너뜁니다.", inline=False)
     embed.add_field(name="/일시정지, /다시재생", value="재생을 일시정지하거나 다시 시작합니다.", inline=False)
+    embed.add_field(name="/볼륨", value="음악봇 볼륨을 0부터 100 사이로 설정합니다.", inline=False)
     embed.add_field(name="/대기열", value="대기열을 확인합니다.", inline=False)
     embed.add_field(name="/현재곡", value="현재 곡을 확인합니다.", inline=False)
     embed.add_field(name="/정지, /나가기", value="재생을 멈추고 음성 채널에서 나갑니다.", inline=False)
