@@ -14,9 +14,11 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 import yt_dlp
+from keep_alive import keep_alive
 
 
 load_dotenv()
+keep_alive()
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
