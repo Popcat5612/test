@@ -468,7 +468,11 @@ class GuildMusicState:
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)
         embed.add_field(name="대기열", value=queue_text, inline=False)
+<<<<<<< HEAD
         embed.set_footer(text="곡 변경, 정지, 대기열 확인 때 패널이 갱신됩니다.")
+=======
+        embed.set_footer(text="곡 신청, 대기열 확인, /현재곡 실행 때 패널이 갱신됩니다.")
+>>>>>>> 8fc197958d29c1f1440da89c8ac3414518ef6d51
         return embed
 
     async def _refresh_control_panel_locked(self) -> None:
@@ -561,8 +565,11 @@ class GuildMusicState:
             return
 
         self._schedule_idle_disconnect_locked()
+<<<<<<< HEAD
         if refresh_panel:
             await self._refresh_control_panel_locked()
+=======
+>>>>>>> 8fc197958d29c1f1440da89c8ac3414518ef6d51
 
     async def _after_track(self, error: Exception | None, generation: int) -> None:
         if error:
@@ -897,7 +904,6 @@ class MusicControlsView(discord.ui.View):
             state = get_state(interaction)
             await state.remember_control_panel_message(interaction)
             await state.stop_and_leave()
-            await state.refresh_control_panel(interaction.channel)
         except MusicError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
@@ -987,7 +993,6 @@ async def volume(
 async def stop(interaction: discord.Interaction) -> None:
     state = get_state(interaction)
     await state.stop_and_leave()
-    await state.refresh_control_panel(interaction.channel)
     await interaction.response.send_message("재생을 멈추고 음성 채널에서 나갔어요.")
 
 
@@ -995,7 +1000,6 @@ async def stop(interaction: discord.Interaction) -> None:
 async def leave(interaction: discord.Interaction) -> None:
     state = get_state(interaction)
     await state.stop_and_leave()
-    await state.refresh_control_panel(interaction.channel)
     await interaction.response.send_message("음성 채널에서 나갔어요.")
 
 
