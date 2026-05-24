@@ -36,7 +36,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch",
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "socket_timeout": 15,
@@ -46,7 +46,7 @@ YTDL_OPTIONS = {
 
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"]
+            "player_client": ["web"]
         }
     },
 
