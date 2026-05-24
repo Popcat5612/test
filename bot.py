@@ -50,10 +50,10 @@ YTDL_OPTIONS = {
 
     # 유튜브 우회 설정
     "extractor_args": {
-        "youtube": {
-            "player_client": ["android"]
-        }
-    },
+    "youtube": {
+        "player_client": ["android", "web"]
+    }
+},
 
     # 안드로이드 유튜브 앱처럼 위장
     "http_headers": {
@@ -62,7 +62,7 @@ YTDL_OPTIONS = {
             "(Linux; U; Android 11) gzip"
         )
     },
-    
+
 
     # 추가 안정화 옵션
     "nocheckcertificate": True,
@@ -187,20 +187,32 @@ def extract_autoplay_info(seed: Track) -> dict | None:
         return None
 
     radio_url = f"{youtube_watch_url(source_id)}&list=RD{source_id}"
-    with yt_dlp.YoutubeDL(AUTOPLAY_YTDL_OPTIONS) as ydl:
+
+    # 쿠키 포함 옵션 복사
+    opts = AUTOPLAY_YTDL_OPTIONS.copy()
+
+    temp_cookie = "/tmp/cookies.txt"
+    shutil.copy("/etc/secrets/cookies.txt", temp_cookie)
+
+    opts["cookiefile"] = temp_cookie
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(radio_url, download=False)
 
     if not info:
         return None
 
     entries = [entry for entry in info.get("entries", []) if entry]
+
     for entry in entries:
         entry_id = entry.get("id") or youtube_video_id_from_url(entry.get("url"))
+
         if not entry_id or entry_id == source_id:
             continue
 
         title = entry.get("title")
         webpage_url = entry.get("webpage_url") or youtube_watch_url(entry_id)
+
         if title and webpage_url:
             return {
                 "id": entry_id,
@@ -969,19 +981,33 @@ class MusicControlsView(discord.ui.View):
 @app_commands.rename(query="검색어")
 @app_commands.describe(query="YouTube URL 또는 검색어")
 async def play(interaction: discord.Interaction, query: str) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
 
     try:
+        await interaction.response.defer(ephemeral=True)
+
         _state, track, position = await enqueue_from_interaction(interaction, query)
+
+        await interaction.followup.send(
+            enqueue_result_message(track, position),
+            ephemeral=True
+        )
+
     except MusicError as exc:
-        await interaction.followup.send(str(exc), ephemeral=True)
-        return
+        try:
+            await interaction.followup.send(str(exc), ephemeral=True)
+        except:
+            pass
+
     except Exception:
         LOGGER.exception("Unexpected play command failure")
-        await interaction.followup.send("곡을 불러오는 중 오류가 발생했어요.", ephemeral=True)
-        return
 
-    await interaction.followup.send(enqueue_result_message(track, position), ephemeral=True)
+        try:
+            await interaction.followup.send(
+                "곡을 불러오는 중 오류가 발생했어요.",
+                ephemeral=True
+            )
+        except:
+            pass
 
 
 @bot.tree.command(name="건너뛰기", description="현재 곡을 건너뜁니다.")
