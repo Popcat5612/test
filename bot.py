@@ -155,6 +155,9 @@ def extract_info(query: str) -> dict:
 
     opts["cookiefile"] = temp_cookie
 
+    print("NEW CODE LOADED")
+    print("cookie path:", opts["cookiefile"])
+
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(normalize_query(query), download=False)
 
