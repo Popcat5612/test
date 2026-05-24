@@ -39,7 +39,7 @@ YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "noplaylist": True,
     "quiet": True,
-    "socket_timeout": 15,
+    "socket_timeout":8,
     "source_address": "0.0.0.0",
     "nooverwrites": True,
 
@@ -182,45 +182,47 @@ def extract_info(query: str) -> dict:
     return info
     
 def extract_autoplay_info(seed: Track) -> dict | None:
-    source_id = seed.source_id or youtube_video_id_from_url(seed.webpage_url)
-    if not source_id:
-        return None
+    try:
+        source_id = seed.source_id or youtube_video_id_from_url(seed.webpage_url)
+        if not source_id:
+            return None
 
-    radio_url = f"{youtube_watch_url(source_id)}&list=RD{source_id}"
+        radio_url = f"{youtube_watch_url(source_id)}&list=RD{source_id}"
 
-    # 쿠키 포함 옵션 복사
-    opts = AUTOPLAY_YTDL_OPTIONS.copy()
+        opts = AUTOPLAY_YTDL_OPTIONS.copy()
 
-    temp_cookie = "/tmp/cookies.txt"
-    shutil.copy("/etc/secrets/cookies.txt", temp_cookie)
+        temp_cookie = "/tmp/cookies.txt"
+        shutil.copy("/etc/secrets/cookies.txt", temp_cookie)
+        opts["cookiefile"] = temp_cookie
 
-    opts["cookiefile"] = temp_cookie
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(radio_url, download=False)
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(radio_url, download=False)
+        if not info:
+            return None
 
-    if not info:
-        return None
+        entries = [entry for entry in info.get("entries", []) if entry]
 
-    entries = [entry for entry in info.get("entries", []) if entry]
+        for entry in entries:
+            entry_id = entry.get("id") or youtube_video_id_from_url(entry.get("url"))
 
-    for entry in entries:
-        entry_id = entry.get("id") or youtube_video_id_from_url(entry.get("url"))
+            if not entry_id or entry_id == source_id:
+                continue
 
-        if not entry_id or entry_id == source_id:
-            continue
+            title = entry.get("title")
+            webpage_url = entry.get("webpage_url") or youtube_watch_url(entry_id)
 
-        title = entry.get("title")
-        webpage_url = entry.get("webpage_url") or youtube_watch_url(entry_id)
+            if title and webpage_url:
+                return {
+                    "id": entry_id,
+                    "title": title,
+                    "webpage_url": webpage_url,
+                    "duration": entry.get("duration"),
+                    "thumbnail": entry.get("thumbnail"),
+                }
 
-        if title and webpage_url:
-            return {
-                "id": entry_id,
-                "title": title,
-                "webpage_url": webpage_url,
-                "duration": entry.get("duration"),
-                "thumbnail": entry.get("thumbnail"),
-            }
+    except Exception as e:
+        LOGGER.warning("Autoplay extraction failed: %s", e)
 
     return None
 
@@ -983,7 +985,11 @@ class MusicControlsView(discord.ui.View):
 async def play(interaction: discord.Interaction, query: str) -> None:
 
     try:
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.NotFound:
+            LOGGER.warning("Interaction expired before defer")
+            return
 
         _state, track, position = await enqueue_from_interaction(interaction, query)
 
