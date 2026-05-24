@@ -36,7 +36,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch",
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "socket_timeout": 15,
@@ -51,19 +51,18 @@ YTDL_OPTIONS = {
     # 유튜브 우회 설정
     "extractor_args": {
         "youtube": {
-            "player_client": ["web"],
-            "player_skip": ["webpage", "configs"]
+            "player_client": ["android"]
         }
     },
 
-    # 브라우저 헤더 위장
+    # 안드로이드 유튜브 앱처럼 위장
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
+            "com.google.android.youtube/19.09.37 "
+            "(Linux; U; Android 11) gzip"
         )
     },
+    
 
     # 추가 안정화 옵션
     "nocheckcertificate": True,

@@ -2,7 +2,10 @@ services:
   - type: worker
     name: discord-music-bot
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      npm install -g npm
+      pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: DISCORD_TOKEN
