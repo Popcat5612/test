@@ -36,7 +36,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch",
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio",
     "noplaylist": True,
     "quiet": True,
     "socket_timeout": 15,

@@ -1,5 +1,5 @@
 discord.py[voice]
 python-dotenv
-yt-dlp
+yt-dlp>=2025.5.22
 Flask
 PyNaCl
