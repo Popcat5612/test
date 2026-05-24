@@ -36,13 +36,20 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch",
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio",
     "noplaylist": True,
     "quiet": True,
     "socket_timeout": 15,
     "source_address": "0.0.0.0",
     "nooverwrites": True,
+
     "extractor_retries": 3,
+
+    "extractor_args": {
+        "youtube": {
+            "player_skip": ["webpage", "configs"]
+        }
+    },
 
     "http_headers": {
         "User-Agent": (
@@ -52,7 +59,6 @@ YTDL_OPTIONS = {
         )
     }
 }
-
 AUTOPLAY_YTDL_OPTIONS = {
     **YTDL_OPTIONS,
     "extract_flat": "in_playlist",
