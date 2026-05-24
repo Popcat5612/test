@@ -36,7 +36,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch",
-    "format": "bestaudio",
+    "format": "bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "socket_timeout": 15,
@@ -45,20 +45,32 @@ YTDL_OPTIONS = {
 
     "extractor_retries": 3,
 
+    # 쿠키
+    "cookiefile": "/tmp/cookies.txt",
+
+    # 유튜브 우회 설정
     "extractor_args": {
         "youtube": {
+            "player_client": ["web"],
             "player_skip": ["webpage", "configs"]
         }
     },
 
+    # 브라우저 헤더 위장
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0.0.0 Safari/537.36"
         )
-    }
+    },
+
+    # 추가 안정화 옵션
+    "nocheckcertificate": True,
+    "ignoreerrors": False,
+    "no_warnings": False,
 }
+
 AUTOPLAY_YTDL_OPTIONS = {
     **YTDL_OPTIONS,
     "extract_flat": "in_playlist",
