@@ -39,25 +39,26 @@ FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
-    "default_search": "ytsearch",
-    "format": "bestaudio/best",
+    "default_search": "ytsearch1",
+    "format": "bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
-    "quiet": True,
-    "socket_timeout":8,
-    "source_address": "0.0.0.0",
-    "nooverwrites": True,
 
-    "extractor_retries": 3,
+    "quiet": False,
+    "socket_timeout": 15,
+
+    "source_address": "0.0.0.0",
+    "extractor_retries": 5,
 
     # 쿠키
-    "cookiefile": "/tmp/cookies.txt",
+    "cookiefile": COOKIE_PATH,
 
     # 유튜브 우회 설정
     "extractor_args": {
-    "youtube": {
-        "player_client": ["android", "web"]
-    }
-},
+        "youtube": {
+            "player_client": ["android", "web"],
+            "player_skip": ["webpage", "configs"],
+        }
+    },
 
     # 안드로이드 유튜브 앱처럼 위장
     "http_headers": {
@@ -66,7 +67,6 @@ YTDL_OPTIONS = {
             "(Linux; U; Android 11) gzip"
         )
     },
-
 
     # 추가 안정화 옵션
     "nocheckcertificate": True,
@@ -164,16 +164,25 @@ def extract_info(query: str) -> dict:
     if os.path.exists(COOKIE_PATH):
         opts["cookiefile"] = COOKIE_PATH
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(normalize_query(query), download=False)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(
+                normalize_query(query),
+                download=False
+            )
+    except Exception as e:
+        LOGGER.error("yt-dlp extract failed: %s", e)
+        raise MusicError("유튜브 검색에 실패했어요.")
 
     if not info:
         raise MusicError("검색 결과를 찾지 못했어요.")
 
     if "entries" in info:
         entries = [entry for entry in info.get("entries", []) if entry]
+
         if not entries:
             raise MusicError("검색 결과를 찾지 못했어요.")
+
         return entries[0]
 
     return info
@@ -261,7 +270,17 @@ async def build_autoplay_track(seed: Track, bot_user: discord.ClientUser | None)
 
 async def resolve_stream_url(track: Track) -> str:
     info = await asyncio.to_thread(extract_info, track.webpage_url)
+
     stream_url = info.get("url")
+
+    if not stream_url:
+        formats = info.get("formats", [])
+
+        for f in reversed(formats):
+            if f.get("url"):
+                stream_url = f["url"]
+                break
+
     if not stream_url:
         raise MusicError("오디오 스트림 주소를 찾지 못했어요.")
 
@@ -269,6 +288,7 @@ async def resolve_stream_url(track: Track) -> str:
     track.duration = info.get("duration") or track.duration
     track.thumbnail = info.get("thumbnail") or track.thumbnail
     track.source_id = info.get("id") or track.source_id
+
     return stream_url
 
 
