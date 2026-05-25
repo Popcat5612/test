@@ -40,38 +40,43 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch1",
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "noplaylist": True,
 
-    "quiet": False,
-    "socket_timeout": 15,
+    "quiet": True,
+    "no_warnings": True,
+
+    "socket_timeout": 20,
+    "extractor_retries": 10,
+    "retries": 10,
 
     "source_address": "0.0.0.0",
-    "extractor_retries": 5,
 
     # 쿠키
     "cookiefile": COOKIE_PATH,
 
-    # 유튜브 우회 설정
+    # 유튜브 우회
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"],
-            "player_skip": ["webpage", "configs"],
+            "player_client": [
+                "android",
+                "ios",
+                "web"
+            ]
         }
     },
 
-    # 안드로이드 유튜브 앱처럼 위장
+    # 모바일 앱 위장
     "http_headers": {
         "User-Agent": (
-            "com.google.android.youtube/19.09.37 "
-            "(Linux; U; Android 11) gzip"
+            "Mozilla/5.0 (Linux; Android 11; Mobile) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Mobile Safari/537.36"
         )
     },
 
-    # 추가 안정화 옵션
     "nocheckcertificate": True,
-    "ignoreerrors": False,
-    "no_warnings": False,
 }
 
 AUTOPLAY_YTDL_OPTIONS = {
@@ -166,10 +171,18 @@ def extract_info(query: str) -> dict:
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
+
+            search_query = normalize_query(query)
+
+            LOGGER.info("Searching: %s", search_query)
+
             info = ydl.extract_info(
-                normalize_query(query),
+                search_query,
                 download=False
             )
+
+            LOGGER.info("Result: %s", info)
+
     except Exception as e:
         LOGGER.error("yt-dlp extract failed: %s", e)
         raise MusicError("유튜브 검색에 실패했어요.")
