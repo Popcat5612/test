@@ -18,6 +18,10 @@ from keep_alive import keep_alive
 
 
 load_dotenv()
+COOKIE_PATH = "/tmp/cookies.txt"
+
+if os.path.exists("/etc/secrets/cookies.txt"):
+    shutil.copy("/etc/secrets/cookies.txt", COOKIE_PATH)
 keep_alive()
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -155,17 +159,10 @@ def youtube_watch_url(video_id: str) -> str:
 
 
 def extract_info(query: str) -> dict:
-    print("cookies exists:", os.path.exists("/etc/secrets/cookies.txt"))
-
     opts = YTDL_OPTIONS.copy()
 
-    temp_cookie = "/tmp/cookies.txt"
-    shutil.copy("/etc/secrets/cookies.txt", temp_cookie)
-
-    opts["cookiefile"] = temp_cookie
-
-    print("NEW CODE LOADED")
-    print("cookie path:", opts["cookiefile"])
+    if os.path.exists(COOKIE_PATH):
+        opts["cookiefile"] = COOKIE_PATH
 
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(normalize_query(query), download=False)
@@ -191,9 +188,8 @@ def extract_autoplay_info(seed: Track) -> dict | None:
 
         opts = AUTOPLAY_YTDL_OPTIONS.copy()
 
-        temp_cookie = "/tmp/cookies.txt"
-        shutil.copy("/etc/secrets/cookies.txt", temp_cookie)
-        opts["cookiefile"] = temp_cookie
+        if os.path.exists(COOKIE_PATH):
+            opts["cookiefile"] = COOKIE_PATH
 
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(radio_url, download=False)
@@ -225,7 +221,6 @@ def extract_autoplay_info(seed: Track) -> dict | None:
         LOGGER.warning("Autoplay extraction failed: %s", e)
 
     return None
-
 
 async def build_track(query: str, requester: discord.abc.User) -> Track:
     info = await asyncio.to_thread(extract_info, query)
@@ -985,12 +980,18 @@ class MusicControlsView(discord.ui.View):
 async def play(interaction: discord.Interaction, query: str) -> None:
 
     try:
-        try:
-            await interaction.response.defer(ephemeral=True)
-        except discord.NotFound:
-            LOGGER.warning("Interaction expired before defer")
-            return
+        # 가장 먼저 응답 확보
+        await interaction.response.defer(thinking=True, ephemeral=True)
 
+    except discord.NotFound:
+        LOGGER.warning("Interaction expired before defer")
+        return
+
+    except Exception:
+        LOGGER.exception("Failed to defer interaction")
+        return
+
+    try:
         _state, track, position = await enqueue_from_interaction(interaction, query)
 
         await interaction.followup.send(
@@ -999,10 +1000,7 @@ async def play(interaction: discord.Interaction, query: str) -> None:
         )
 
     except MusicError as exc:
-        try:
-            await interaction.followup.send(str(exc), ephemeral=True)
-        except:
-            pass
+        await interaction.followup.send(str(exc), ephemeral=True)
 
     except Exception:
         LOGGER.exception("Unexpected play command failure")
