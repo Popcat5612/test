@@ -58,11 +58,8 @@ YTDL_OPTIONS = {
     # 유튜브 우회
     "extractor_args": {
         "youtube": {
-            "player_client": [
-                "android",
-                "ios",
-                "web"
-            ]
+            "player_client": ["android", "web"],
+            "player_skip": ["configs"],
         }
     },
 
@@ -75,6 +72,10 @@ YTDL_OPTIONS = {
             "Chrome/120.0.0.0 Mobile Safari/537.36"
         )
     },
+
+    # 지역 우회
+    "geo_bypass": True,
+    "geo_bypass_country": "US",
 
     "nocheckcertificate": True,
 }
@@ -172,7 +173,13 @@ def extract_info(query: str) -> dict:
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
 
-            search_query = normalize_query(query)
+            # URL이면 그대로
+            if query.startswith(("http://", "https://")):
+                search_query = query
+
+            # 검색어면 ytsearch 사용
+            else:
+                search_query = f"ytsearch:{query}"
 
             LOGGER.info("Searching: %s", search_query)
 
@@ -181,7 +188,7 @@ def extract_info(query: str) -> dict:
                 download=False
             )
 
-            LOGGER.info("Result: %s", info)
+            LOGGER.info("Result type: %s", info.get("_type"))
 
     except Exception as e:
         LOGGER.error("yt-dlp extract failed: %s", e)
@@ -190,13 +197,19 @@ def extract_info(query: str) -> dict:
     if not info:
         raise MusicError("검색 결과를 찾지 못했어요.")
 
-    if "entries" in info:
-        entries = [entry for entry in info.get("entries", []) if entry]
+    # 검색 결과 처리
+    if info.get("_type") == "playlist":
+        entries = info.get("entries")
 
         if not entries:
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        return entries[0]
+        first = next((e for e in entries if e), None)
+
+        if not first:
+            raise MusicError("검색 결과를 찾지 못했어요.")
+
+        return first
 
     return info
     
