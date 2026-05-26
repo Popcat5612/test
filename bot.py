@@ -674,39 +674,58 @@ async def play(
     interaction: discord.Interaction,
     query: str
 ):
-
-    await interaction.response.defer()
+    # 🌟 [최우선 배치]: Render의 느린 환경을 고려하여 3초 제한 응답 대기를 가장 먼저 보냅니다.
+    try:
+        await interaction.response.defer()
+    except Exception:
+        pass
 
     try:
-
         state = get_state(interaction)
 
+        # 음성 채널 연결
         await state.connect(interaction)
 
-        track = await build_track(
-            query,
-            interaction.user
-        )
+        # 🌟 [주의]: build_track 내부에서 extract_info를 실행할 때 타임아웃 오류가 나면 
+        # 디스코드 사용자에게 명확한 안내를 해주기 위해 에러 분기점을 강화합니다.
+        try:
+            track = await build_track(
+                query,
+                interaction.user
+            )
+        except MusicError as me:
+            # 우리가 앞서 정의한 커스텀 에러(MusicError)가 발생하면 사용자 친화적인 메시지 전송
+            await interaction.followup.send(str(me))
+            return
+        except Exception as exc:
+            LOGGER.exception("Track building failed: %s", exc)
+            await interaction.followup.send("유튜브 오디오 스트림을 가져오는 데 실패했습니다. 잠시 후 다시 시도해 주세요.")
+            return
 
+        # 큐에 추가 및 재생
         await state.enqueue(track)
 
+        # 임베드 메시지 구성
         embed = track_embed(
             "추가됨",
             track,
             discord.Color.blurple()
         )
 
+        # 응답 완료 전송
         await interaction.followup.send(
             embed=embed
         )
 
     except Exception as e:
-
         LOGGER.exception("Play error: %s", e)
-
-        await interaction.followup.send(
-            str(e)
-        )
+        # 이미 defer가 되었기 때문에 response.send_message 대신 followup.send를 사용해야 에러가 안 납니다.
+        try:
+            await interaction.followup.send(
+                f"⚠️ 재생 중 오류가 발생했습니다: {str(e)}"
+            )
+        except Exception:
+            pass
 
 
 @bot.tree.command(
