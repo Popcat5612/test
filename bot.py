@@ -213,11 +213,24 @@ def parse_volume_percent(value: str) -> int:
 # =========================
 
 def extract_info(query: str) -> dict:
-
     opts = YTDL_OPTIONS.copy()
 
     if os.path.exists(COOKIE_PATH):
         opts["cookiefile"] = COOKIE_PATH
+
+    # 🌟 [핵심 누락 보완]: 일반 검색어일 때 유튜브 보안 필터를 통과하기 위한 검색용 임시 설정입니다.
+    if not query.startswith(("http://", "https://")):
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["web", "ios", "mweb"],
+                "skip": ["dash", "hls"]
+            }
+        }
+        opts["http_headers"] = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -241,30 +254,48 @@ def extract_info(query: str) -> dict:
         LOGGER.exception("yt-dlp error: %s", e)
         raise MusicError("유튜브 검색 실패")
 
+    # ytsearch 결과 처리
     if info.get("_type") == "playlist":
 
-        entries = list(info.get("entries", []))
+        entries = info.get("entries")
 
+        if entries is None:
+            LOGGER.error("Entries is None")
+            raise MusicError("검색 결과를 찾지 못했어요.")
+
+        # generator -> list
+        entries = list(entries)
+        LOGGER.info("Entries count: %s", len(entries))
+
+        # 유효한 엔트리만 필터링
         valid_entries = [
-            e for e in entries
-            if e and (
-                e.get("url")
-                or e.get("webpage_url")
-                or e.get("id")
+            entry for entry in entries
+            if (
+                entry
+                and (
+                    entry.get("url")
+                    or entry.get("webpage_url")
+                    or entry.get("id")
+                )
             )
         ]
 
-        if not valid_entries:
-            raise MusicError("검색 결과가 없어요.")
+        LOGGER.info("Valid entries count: %s", len(valid_entries))
 
+        if not valid_entries:
+            LOGGER.error("No valid entries found")
+            raise MusicError("검색 결과를 찾지 못했어요.")
+
+        # 🌟 [적용 완료]: 첫 번째 항목 [0]을 정확하게 추출합니다.
         first = valid_entries[0]
 
+        # webpage_url 없으면 생성
         if not first.get("webpage_url"):
             video_id = first.get("id")
-
             if video_id:
                 first["webpage_url"] = youtube_watch_url(video_id)
 
+        LOGGER.info("Selected video: %s", first.get("title"))
         return first
 
     return info
