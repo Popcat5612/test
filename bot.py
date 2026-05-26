@@ -38,178 +38,29 @@ FFMPEG_EXECUTABLE = os.getenv("FFMPEG_EXECUTABLE") or shutil.which("ffmpeg") or 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 FFMPEG_OPTIONS = "-vn -loglevel warning"
 
-YTDL_OPTIONS = {
-    "extract_flat": False,
-
-    # 최대한 단순한 오디오 포맷 사용
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
-
-    "noplaylist": True,
-
-    "quiet": False,
-    "no_warnings": False,
-
-    "socket_timeout": 20,
-    "extractor_retries": 10,
-    "retries": 10,
-
-    "source_address": "0.0.0.0",
-
-    # Render + YouTube 우회
-    "extractor_args": {
-        "youtube": {
-
-            # web 대신 ios + mweb 사용
-            "player_client": [
-                "ios",
-                "mweb"
-            ],
-
-            # 문제되는 스트림 제거
-            "skip": [
-                "dash",
-                "hls"
-            ]
-        }
-    },
-
-    # 최신 모바일 Safari 위장
-    "http_headers": {
-        "User-Agent": (
-            "Mozilla/5.0 "
-            "(iPhone; CPU iPhone OS 17_5 like Mac OS X) "
-            "AppleWebKit/605.1.15 "
-            "(KHTML, like Gecko) "
-            "Version/17.5 Mobile/15E148 Safari/604.1"
-        ),
-
-        "Accept": (
-            "text/html,application/xhtml+xml,"
-            "application/xml;q=0.9,*/*;q=0.8"
-        ),
-
-        "Accept-Language": (
-            "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-        )
-    },
-
-    # 지역 우회
-    "geo_bypass": True,
-    "geo_bypass_country": "US",
-
-    "nocheckcertificate": True,
-}
-
-
-AUTOPLAY_YTDL_OPTIONS = {
-    **YTDL_OPTIONS,
-    "extract_flat": "in_playlist",
-    "noplaylist": False,
-    "playlistend": 12,
-}
-
-
-class MusicError(Exception):
-    """User-facing music command error."""
-
-
-@dataclass(slots=True)
-class Track:
-    title: str
-    webpage_url: str
-    duration: int | None
-    requester_id: int
-    requester_name: str
-    thumbnail: str | None = None
-    source_id: str | None = None
-    autoplay: bool = False
-
-    @property
-    def requester_mention(self) -> str:
-        if self.autoplay:
-            return "자동재생"
-
-        return f"<@{self.requester_id}>"
-
-
-def format_duration(seconds: int | None) -> str:
-    if seconds is None:
-        return "알 수 없음"
-
-    minutes, sec = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-
-    if hours:
-        return f"{hours}:{minutes:02d}:{sec:02d}"
-
-    return f"{minutes}:{sec:02d}"
-
-
-def parse_volume_percent(value: str) -> int:
-    value = value.strip().removesuffix("%").strip()
-
-    try:
-        percent = int(value)
-
-    except ValueError as exc:
-        raise MusicError(
-            "볼륨은 0부터 100 사이 숫자로 입력해 주세요."
-        ) from exc
-
-    if percent < 0 or percent > 100:
-        raise MusicError(
-            "볼륨은 0부터 100 사이로 설정할 수 있어요."
-        )
-
-    return percent
-
-
-def normalize_query(query: str) -> str:
-    query = query.strip()
-
-    if query.startswith(("http://", "https://")):
-        return query
-
-    return f"ytsearch1:{query}"
-
-
-def youtube_video_id_from_url(
-    url: str | None
-) -> str | None:
-
-    if not url:
-        return None
-
-    parsed = urlparse(url)
-
-    if parsed.netloc.endswith("youtu.be"):
-        return parsed.path.strip("/") or None
-
-    if "youtube.com" in parsed.netloc:
-
-        query = parse_qs(parsed.query)
-
-        video_ids = query.get("v")
-
-        if video_ids:
-            return video_ids[0]
-
-        if parsed.path.startswith("/shorts/"):
-            return parsed.path.removeprefix(
-                "/shorts/"
-            ).split("/", maxsplit=1)[0]
-
-    return None
-
-
-def youtube_watch_url(video_id: str) -> str:
-    return (
-        f"https://www.youtube.com/watch?v={video_id}"
-    )
-
-
 def extract_info(query: str) -> dict:
     opts = YTDL_OPTIONS.copy()
+    
+    # 🌟 [추가] 쿠키 경로가 전역변수로 있다면 쿠키 적용 (없으면 패스됨)
+    if 'COOKIE_PATH' in globals() and os.path.exists(COOKIE_PATH):
+        opts["cookiefile"] = COOKIE_PATH
+
+    # 🌟 [핵심 수정] 유튜브 제목 검색을 할 때 생기는 '0개 검색' 버그 우회 설정
+    # 링크 주소(http/https)가 아닌 일반 검색어 입력일 때만 작동합니다.
+    if not query.startswith(("http://", "https://")):
+        opts["extractor_args"] = {
+            "youtube": {
+                # 검색 리스트를 가져오기 위해 임시로 'web' 클라이언트를 추가합니다.
+                "player_client": ["web", "ios", "mweb"],
+                "skip": ["dash", "hls"]
+            }
+        }
+        # 검색용 웹 헤더로 일시 전환하여 유튜브 보안 필터를 통과합니다.
+        opts["http_headers"] = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -342,6 +193,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
     
 def extract_autoplay_info(seed: Track) -> dict | None:
     try:
