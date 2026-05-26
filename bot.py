@@ -117,27 +117,38 @@ def format_duration(seconds: int | None) -> str:
 
     minutes, sec = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
+
     if hours:
         return f"{hours}:{minutes:02d}:{sec:02d}"
+
     return f"{minutes}:{sec:02d}"
 
 
 def parse_volume_percent(value: str) -> int:
     value = value.strip().removesuffix("%").strip()
+
     try:
         percent = int(value)
+
     except ValueError as exc:
-        raise MusicError("볼륨은 0부터 100 사이 숫자로 입력해 주세요.") from exc
+        raise MusicError(
+            "볼륨은 0부터 100 사이 숫자로 입력해 주세요."
+        ) from exc
 
     if percent < 0 or percent > 100:
-        raise MusicError("볼륨은 0부터 100 사이로 설정할 수 있어요.")
+        raise MusicError(
+            "볼륨은 0부터 100 사이로 설정할 수 있어요."
+        )
+
     return percent
 
 
 def normalize_query(query: str) -> str:
     query = query.strip()
+
     if query.startswith(("http://", "https://")):
         return query
+
     return f"ytsearch1:{query}"
 
 
@@ -146,17 +157,22 @@ def youtube_video_id_from_url(url: str | None) -> str | None:
         return None
 
     parsed = urlparse(url)
+
     if parsed.netloc.endswith("youtu.be"):
         return parsed.path.strip("/") or None
 
     if "youtube.com" in parsed.netloc:
         query = parse_qs(parsed.query)
+
         video_ids = query.get("v")
+
         if video_ids:
             return video_ids[0]
 
         if parsed.path.startswith("/shorts/"):
-            return parsed.path.removeprefix("/shorts/").split("/", maxsplit=1)[0]
+            return parsed.path.removeprefix(
+                "/shorts/"
+            ).split("/", maxsplit=1)[0]
 
     return None
 
@@ -182,48 +198,67 @@ def extract_info(query: str) -> dict:
             else:
                 search_query = f"ytsearch1:{query}"
 
-            LOGGER.info("Searching: %s", search_query)
+            LOGGER.info(
+                "Searching: %s",
+                search_query
+            )
 
             info = ydl.extract_info(
                 search_query,
                 download=False
             )
 
+            if not info:
+                LOGGER.error("No info returned")
+                raise MusicError(
+                    "검색 결과를 찾지 못했어요."
+                )
+
             LOGGER.info(
                 "Result type: %s",
                 info.get("_type")
             )
 
-    except Exception as e:
-        LOGGER.error(
-            "yt-dlp extract failed: %s",
-            e
+    except Exception:
+        LOGGER.exception(
+            "yt-dlp extract failed"
         )
-        raise MusicError("유튜브 검색에 실패했어요.")
 
-    if not info:
-        raise MusicError("검색 결과를 찾지 못했어요.")
+        raise MusicError(
+            "유튜브 검색에 실패했어요."
+        )
 
     # ytsearch 결과 처리
     if info.get("_type") == "playlist":
 
         entries = info.get("entries")
 
+        if entries is None:
+            LOGGER.error("Entries is None")
+
+            raise MusicError(
+                "검색 결과를 찾지 못했어요."
+            )
+
+        # generator -> list 변환
+        entries = list(entries)
+
+        # None 제거
+        entries = [
+            e for e in entries
+            if e
+        ]
+
         if not entries:
-            LOGGER.error("No entries found")
-            raise MusicError("검색 결과를 찾지 못했어요.")
+            LOGGER.error(
+                "No valid entries found"
+            )
 
-        try:
-            # generator 대응
-            first = next(entries)
+            raise MusicError(
+                "검색 결과를 찾지 못했어요."
+            )
 
-        except TypeError:
-            # list 대응
-            first = entries[0]
-
-        if not first:
-            LOGGER.error("First entry is empty")
-            raise MusicError("검색 결과를 찾지 못했어요.")
+        first = entries[0]
 
         LOGGER.info(
             "Selected video: %s",
