@@ -174,7 +174,7 @@ def extract_info(query: str) -> dict:
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
 
-            # URL이면 그대로
+            # URL이면 그대로 사용
             if query.startswith(("http://", "https://")):
                 search_query = query
 
@@ -189,27 +189,41 @@ def extract_info(query: str) -> dict:
                 download=False
             )
 
-            LOGGER.info("Result type: %s", info.get("_type"))
+            LOGGER.info(
+                "Result type: %s",
+                info.get("_type")
+            )
 
     except Exception as e:
-        LOGGER.error("yt-dlp extract failed: %s", e)
+        LOGGER.error(
+            "yt-dlp extract failed: %s",
+            e
+        )
         raise MusicError("유튜브 검색에 실패했어요.")
 
     if not info:
         raise MusicError("검색 결과를 찾지 못했어요.")
 
-    # 검색 결과 처리
+    # ytsearch 결과 처리
     if info.get("_type") == "playlist":
-        entries = info.get("entries", [])
 
-        # None 제거
-        entries = [e for e in entries if e]
+        entries = info.get("entries")
 
         if not entries:
-            LOGGER.error("No valid entries found")
+            LOGGER.error("No entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        first = entries[0]
+        try:
+            # generator 대응
+            first = next(entries)
+
+        except TypeError:
+            # list 대응
+            first = entries[0]
+
+        if not first:
+            LOGGER.error("First entry is empty")
+            raise MusicError("검색 결과를 찾지 못했어요.")
 
         LOGGER.info(
             "Selected video: %s",
