@@ -177,9 +177,9 @@ def extract_info(query: str) -> dict:
             if query.startswith(("http://", "https://")):
                 search_query = query
 
-            # 검색어면 ytsearch 사용
+            # 검색어면 ytsearch1 사용
             else:
-                search_query = f"ytsearch:{query}"
+                search_query = f"ytsearch1:{query}"
 
             LOGGER.info("Searching: %s", search_query)
 
