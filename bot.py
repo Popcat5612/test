@@ -40,6 +40,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "default_search": "ytsearch1",
+    "extract_flat": False,
     "format": "bestaudio/best",
     "noplaylist": True,
 
@@ -199,15 +200,21 @@ def extract_info(query: str) -> dict:
 
     # 검색 결과 처리
     if info.get("_type") == "playlist":
-        entries = info.get("entries")
+        entries = info.get("entries", [])
+
+        # None 제거
+        entries = [e for e in entries if e]
 
         if not entries:
+            LOGGER.error("No valid entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        first = next((e for e in entries if e), None)
+        first = entries[0]
 
-        if not first:
-            raise MusicError("검색 결과를 찾지 못했어요.")
+        LOGGER.info(
+            "Selected video: %s",
+            first.get("title")
+        )
 
         return first
 
