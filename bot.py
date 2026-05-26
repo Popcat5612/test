@@ -73,7 +73,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 # =========================
 
 YTDL_OPTIONS = {
-    # 오디오 자동 선택 (에러 방지 완화)
+    # 🌟 [오디오 포맷] 유튜브 오디오 스트림을 폭넓게 수용하여 포맷 없음(403) 에러를 방지합니다.
     "format": "bestaudio/best",
 
     # 플레이리스트 방지
@@ -82,7 +82,7 @@ YTDL_OPTIONS = {
     # ytsearch 자동 사용
     "default_search": "ytsearch",
 
-    # 로그 (배포 안정화 이후에는 True가 깔끔합니다)
+    # 로그 안정화
     "quiet": True,
     "no_warnings": True,
 
@@ -98,17 +98,18 @@ YTDL_OPTIONS = {
     "geo_bypass": True,
     "geo_bypass_country": "US",
 
+    # 🌟 [Render 디스크 최적화] 가상 서버 권한 에러 및 용량 부족 문제를 완전 차단합니다.
     "cachedir": False,
 
-    # 유튜브 클라이언트 우회 (🌟 중요 수정: web을 빼고 모바일 전용으로 고정)
+    # 🌟 [유튜브 클라이언트 핵심 수정] 
+    # 토큰 에러를 내뿜는 ios를 제외하고, 보안 검문이 덜한 안드로이드 뮤직(android_music) 전용 규격을 투입합니다.
     "extractor_args": {
         "youtube": {
             "player_client": [
-                "ios",
-                "android",
+                "android_music",
                 "mweb"
             ],
-            # DASH/HLS 제거
+            # 오디오 싱크 밀림과 DASH 포맷 충돌을 제거합니다.
             "skip": [
                 "dash",
                 "hls"
@@ -116,12 +117,12 @@ YTDL_OPTIONS = {
         }
     },
 
-    # 헤더 (🌟 중요 수정: player_client 모바일에 맞춰 User-Agent도 iPhone 모바일로 매칭)
+    # 🌟 [헤더 동기화] 위의 player_client(android)와 실제 접속 환경 데이터를 완벽하게 일치시킵니다.
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-            "Version/17.5 Mobile/15E148 Safari/604.1"
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Mobile Safari/537.36"
         ),
         "Accept-Language": (
             "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
@@ -129,6 +130,7 @@ YTDL_OPTIONS = {
         "Accept": "*/*"
     }
 }
+
 
 
 
@@ -674,7 +676,7 @@ async def play(
     interaction: discord.Interaction,
     query: str
 ):
-    # 🌟 [최우선 배치]: Render의 느린 환경을 고려하여 3초 제한 응답 대기를 가장 먼저 보냅니다.
+    # [최우선 배치]: 3초 제한 타임아웃(error code: 10062)을 원천 차단하기 위해 응답 대기부터 보냅니다.
     try:
         await interaction.response.defer()
     except Exception:
@@ -686,15 +688,14 @@ async def play(
         # 음성 채널 연결
         await state.connect(interaction)
 
-        # 🌟 [주의]: build_track 내부에서 extract_info를 실행할 때 타임아웃 오류가 나면 
-        # 디스코드 사용자에게 명확한 안내를 해주기 위해 에러 분기점을 강화합니다.
+        # 오디오 데이터 추출 및 트랙 빌드 수행 (yt-dlp 연동 영역)
         try:
             track = await build_track(
                 query,
                 interaction.user
             )
         except MusicError as me:
-            # 우리가 앞서 정의한 커스텀 에러(MusicError)가 발생하면 사용자 친화적인 메시지 전송
+            # 커스텀 검색 에러 발생 시 사용자에게 예쁜 안내 메시지 전송 후 종료
             await interaction.followup.send(str(me))
             return
         except Exception as exc:
@@ -702,30 +703,31 @@ async def play(
             await interaction.followup.send("유튜브 오디오 스트림을 가져오는 데 실패했습니다. 잠시 후 다시 시도해 주세요.")
             return
 
-        # 큐에 추가 및 재생
+        # 재생 대기열(Queue)에 추가 및 재생 시도
         await state.enqueue(track)
 
-        # 임베드 메시지 구성
+        # 추가 완료 알림 임베드 구성
         embed = track_embed(
             "추가됨",
             track,
             discord.Color.blurple()
         )
 
-        # 응답 완료 전송
+        # 응답 완료 메시지 송출
         await interaction.followup.send(
             embed=embed
         )
 
     except Exception as e:
         LOGGER.exception("Play error: %s", e)
-        # 이미 defer가 되었기 때문에 response.send_message 대신 followup.send를 사용해야 에러가 안 납니다.
+        # 예외 상황 발생 시 대기 상태(defer)를 해제하며 안전하게 에러를 전송합니다.
         try:
             await interaction.followup.send(
                 f"⚠️ 재생 중 오류가 발생했습니다: {str(e)}"
             )
         except Exception:
             pass
+
 
 
 @bot.tree.command(
