@@ -40,7 +40,10 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
     "extract_flat": False,
-    "format": "bestaudio/best",
+
+    # 최대한 단순한 오디오 포맷 사용
+    "format": "bestaudio[ext=m4a]/bestaudio/best",
+
     "noplaylist": True,
 
     "quiet": False,
@@ -52,17 +55,17 @@ YTDL_OPTIONS = {
 
     "source_address": "0.0.0.0",
 
-    # 쿠키
-    "cookiefile": COOKIE_PATH,
-
-    # 유튜브 우회
+    # Render + YouTube 우회
     "extractor_args": {
         "youtube": {
+
+            # web 대신 ios + mweb 사용
             "player_client": [
-                "android",
-                "web",
-                "ios"
+                "ios",
+                "mweb"
             ],
+
+            # 문제되는 스트림 제거
             "skip": [
                 "dash",
                 "hls"
@@ -70,13 +73,23 @@ YTDL_OPTIONS = {
         }
     },
 
-    # 모바일 앱 위장
+    # 최신 모바일 Safari 위장
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 (Linux; Android 11; Mobile) "
-            "AppleWebKit/537.36 "
+            "Mozilla/5.0 "
+            "(iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+            "AppleWebKit/605.1.15 "
             "(KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Mobile Safari/537.36"
+            "Version/17.5 Mobile/15E148 Safari/604.1"
+        ),
+
+        "Accept": (
+            "text/html,application/xhtml+xml,"
+            "application/xml;q=0.9,*/*;q=0.8"
+        ),
+
+        "Accept-Language": (
+            "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
         )
     },
 
@@ -160,7 +173,10 @@ def normalize_query(query: str) -> str:
     return f"ytsearch1:{query}"
 
 
-def youtube_video_id_from_url(url: str | None) -> str | None:
+def youtube_video_id_from_url(
+    url: str | None
+) -> str | None:
+
     if not url:
         return None
 
@@ -170,6 +186,7 @@ def youtube_video_id_from_url(url: str | None) -> str | None:
         return parsed.path.strip("/") or None
 
     if "youtube.com" in parsed.netloc:
+
         query = parse_qs(parsed.query)
 
         video_ids = query.get("v")
@@ -186,25 +203,29 @@ def youtube_video_id_from_url(url: str | None) -> str | None:
 
 
 def youtube_watch_url(video_id: str) -> str:
-    return f"https://www.youtube.com/watch?v={video_id}"
+    return (
+        f"https://www.youtube.com/watch?v={video_id}"
+    )
 
 
 def extract_info(query: str) -> dict:
     opts = YTDL_OPTIONS.copy()
 
-    if os.path.exists(COOKIE_PATH):
-        opts["cookiefile"] = COOKIE_PATH
-
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
 
-            # URL이면 그대로 사용
-            if query.startswith(("http://", "https://")):
+            # URL이면 그대로
+            if query.startswith((
+                "http://",
+                "https://"
+            )):
                 search_query = query
 
-            # 검색어면 ytsearch1 사용
+            # 검색어면 ytsearch1
             else:
-                search_query = f"ytsearch1:{query}"
+                search_query = (
+                    f"ytsearch1:{query}"
+                )
 
             LOGGER.info(
                 "Searching: %s",
@@ -217,6 +238,7 @@ def extract_info(query: str) -> dict:
             )
 
             if not info:
+
                 LOGGER.error(
                     "No info returned"
                 )
@@ -231,6 +253,7 @@ def extract_info(query: str) -> dict:
             )
 
     except Exception as e:
+
         LOGGER.exception(
             "yt-dlp extract failed: %s",
             e
@@ -246,6 +269,7 @@ def extract_info(query: str) -> dict:
         entries = info.get("entries")
 
         if entries is None:
+
             LOGGER.error(
                 "Entries is None"
             )
@@ -254,7 +278,7 @@ def extract_info(query: str) -> dict:
                 "검색 결과를 찾지 못했어요."
             )
 
-        # generator -> list 변환
+        # generator -> list
         entries = list(entries)
 
         LOGGER.info(
@@ -262,7 +286,7 @@ def extract_info(query: str) -> dict:
             len(entries)
         )
 
-        # None 제거
+        # 유효한 엔트리만 필터링
         valid_entries = [
             entry for entry in entries
             if (
@@ -281,11 +305,13 @@ def extract_info(query: str) -> dict:
         )
 
         if not valid_entries:
+
             LOGGER.error(
                 "No valid entries found"
             )
 
             for i, entry in enumerate(entries[:5]):
+
                 LOGGER.error(
                     "Entry %s: %s",
                     i,
@@ -298,7 +324,7 @@ def extract_info(query: str) -> dict:
 
         first = valid_entries[0]
 
-        # url 없으면 id 기반으로 생성
+        # webpage_url 없으면 생성
         if not first.get("webpage_url"):
 
             video_id = first.get("id")
