@@ -73,37 +73,63 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 # =========================
 
 YTDL_OPTIONS = {
+    # 오디오 자동 선택 (에러 방지 완화)
     "format": "bestaudio/best",
+
+    # 플레이리스트 방지
     "noplaylist": True,
+
+    # ytsearch 자동 사용
+    "default_search": "ytsearch",
+
+    # 로그 (배포 안정화 이후에는 True가 깔끔합니다)
     "quiet": True,
     "no_warnings": True,
-    "default_search": "ytsearch",
+
+    # 네트워크 안정화
     "socket_timeout": 20,
     "extractor_retries": 10,
     "retries": 10,
-    "nocheckcertificate": True,
-    "geo_bypass": True,
     "source_address": "0.0.0.0",
+
+    # 인증서/지역 우회
+    "nocheckcertificate": True,
+    "prefer_insecure": False,
+    "geo_bypass": True,
+    "geo_bypass_country": "US",
+
+    "cachedir": False,
+
+    # 유튜브 클라이언트 우회 (🌟 중요 수정: web을 빼고 모바일 전용으로 고정)
     "extractor_args": {
         "youtube": {
             "player_client": [
-                "android",
                 "ios",
-                "web",
-                "mweb",
+                "android",
+                "mweb"
+            ],
+            # DASH/HLS 제거
+            "skip": [
+                "dash",
+                "hls"
             ]
         }
     },
+
+    # 헤더 (🌟 중요 수정: player_client 모바일에 맞춰 User-Agent도 iPhone 모바일로 매칭)
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 "
-            "(Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        )
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            "Version/17.5 Mobile/15E148 Safari/604.1"
+        ),
+        "Accept-Language": (
+            "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+        ),
+        "Accept": "*/*"
     }
 }
+
 
 
 # =========================
