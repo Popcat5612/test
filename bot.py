@@ -44,8 +44,8 @@ YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "noplaylist": True,
 
-    "quiet": True,
-    "no_warnings": True,
+    "quiet": False,
+    "no_warnings": False,
 
     "socket_timeout": 20,
     "extractor_retries": 10,
@@ -59,8 +59,11 @@ YTDL_OPTIONS = {
     # 유튜브 우회
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"],
-            "player_skip": ["configs"],
+            "player_client": [
+                "android",
+                "web",
+                "ios"
+            ]
         }
     },
 
@@ -80,6 +83,7 @@ YTDL_OPTIONS = {
 
     "nocheckcertificate": True,
 }
+
 
 AUTOPLAY_YTDL_OPTIONS = {
     **YTDL_OPTIONS,
@@ -152,7 +156,7 @@ def normalize_query(query: str) -> str:
     return f"ytsearch1:{query}"
 
 
-def youtube_video_id_from_url(url: str | None) -> str | None:
+def youtube_video_id_from_url(url: str |None) -> str | None:
     if not url:
         return None
 
@@ -190,11 +194,11 @@ def extract_info(query: str) -> dict:
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
 
-            # URL이면 그대로 사용
+            # URL이면 그대로
             if query.startswith(("http://", "https://")):
                 search_query = query
 
-            # 검색어면 ytsearch1 사용
+            # 검색어면 ytsearch1
             else:
                 search_query = f"ytsearch1:{query}"
 
@@ -210,6 +214,7 @@ def extract_info(query: str) -> dict:
 
             if not info:
                 LOGGER.error("No info returned")
+
                 raise MusicError(
                     "검색 결과를 찾지 못했어요."
                 )
@@ -219,9 +224,10 @@ def extract_info(query: str) -> dict:
                 info.get("_type")
             )
 
-    except Exception:
+    except Exception as e:
         LOGGER.exception(
-            "yt-dlp extract failed"
+            "yt-dlp extract failed: %s",
+            e
         )
 
         raise MusicError(
@@ -234,31 +240,50 @@ def extract_info(query: str) -> dict:
         entries = info.get("entries")
 
         if entries is None:
-            LOGGER.error("Entries is None")
+            LOGGER.error(
+                "Entries is None"
+            )
 
             raise MusicError(
                 "검색 결과를 찾지 못했어요."
             )
 
-        # generator -> list 변환
+        # generator -> list
         entries = list(entries)
 
+        LOGGER.info(
+            "Entries count: %s",
+            len(entries)
+        )
+
         # None 제거
-        entries = [
-            e for e in entries
-            if e
+        valid_entries = [
+            entry for entry in entries
+            if entry and entry.get("url")
         ]
 
-        if not entries:
+        LOGGER.info(
+            "Valid entries count: %s",
+            len(valid_entries)
+        )
+
+        if not valid_entries:
             LOGGER.error(
                 "No valid entries found"
             )
 
+            for i, entry in enumerate(entries[:5]):
+                LOGGER.error(
+                    "Entry %s: %s",
+                    i,
+                    entry
+                )
+
             raise MusicError(
                 "검색 결과를 찾지 못했어요."
             )
 
-        first = entries[0]
+        first = valid_entries[0]
 
         LOGGER.info(
             "Selected video: %s",
