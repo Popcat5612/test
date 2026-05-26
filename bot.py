@@ -39,7 +39,6 @@ FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 FFMPEG_OPTIONS = "-vn -loglevel warning"
 
 YTDL_OPTIONS = {
-    "default_search": "ytsearch1",
     "extract_flat": False,
     "format": "bestaudio/best",
     "noplaylist": True,
@@ -63,6 +62,10 @@ YTDL_OPTIONS = {
                 "android",
                 "web",
                 "ios"
+            ],
+            "skip": [
+                "dash",
+                "hls"
             ]
         }
     },
@@ -112,6 +115,7 @@ class Track:
     def requester_mention(self) -> str:
         if self.autoplay:
             return "자동재생"
+
         return f"<@{self.requester_id}>"
 
 
@@ -156,7 +160,7 @@ def normalize_query(query: str) -> str:
     return f"ytsearch1:{query}"
 
 
-def youtube_video_id_from_url(url: str |None) -> str | None:
+def youtube_video_id_from_url(url: str | None) -> str | None:
     if not url:
         return None
 
@@ -194,11 +198,11 @@ def extract_info(query: str) -> dict:
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
 
-            # URL이면 그대로
+            # URL이면 그대로 사용
             if query.startswith(("http://", "https://")):
                 search_query = query
 
-            # 검색어면 ytsearch1
+            # 검색어면 ytsearch1 사용
             else:
                 search_query = f"ytsearch1:{query}"
 
@@ -213,7 +217,9 @@ def extract_info(query: str) -> dict:
             )
 
             if not info:
-                LOGGER.error("No info returned")
+                LOGGER.error(
+                    "No info returned"
+                )
 
                 raise MusicError(
                     "검색 결과를 찾지 못했어요."
@@ -248,7 +254,7 @@ def extract_info(query: str) -> dict:
                 "검색 결과를 찾지 못했어요."
             )
 
-        # generator -> list
+        # generator -> list 변환
         entries = list(entries)
 
         LOGGER.info(
@@ -259,7 +265,14 @@ def extract_info(query: str) -> dict:
         # None 제거
         valid_entries = [
             entry for entry in entries
-            if entry and entry.get("url")
+            if (
+                entry
+                and (
+                    entry.get("url")
+                    or entry.get("webpage_url")
+                    or entry.get("id")
+                )
+            )
         ]
 
         LOGGER.info(
@@ -284,6 +297,16 @@ def extract_info(query: str) -> dict:
             )
 
         first = valid_entries[0]
+
+        # url 없으면 id 기반으로 생성
+        if not first.get("webpage_url"):
+
+            video_id = first.get("id")
+
+            if video_id:
+                first["webpage_url"] = (
+                    youtube_watch_url(video_id)
+                )
 
         LOGGER.info(
             "Selected video: %s",
