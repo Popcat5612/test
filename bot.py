@@ -221,8 +221,7 @@ def extract_info(query: str) -> dict:
     # if os.path.exists(COOKIE_PATH):
         # opts["cookiefile"] = COOKIE_PATH
 
-    # 🌟 [핵심 수정]: 인증 토큰 에러를 유발하는 android_music을 도려내고, 
-    # 차단 검문과 토큰 요구가 전혀 없는 TV 전용 스마트 프로토콜 tvembed 조합으로 완벽하게 교체합니다.
+    # 유튜브 차단을 뚫기 위해 web, tvembed, mweb 조합 사용
     if not query.startswith(("http://", "https://")):
         opts["format"] = "bestaudio/best"
         opts["extractor_args"] = {
@@ -236,12 +235,16 @@ def extract_info(query: str) -> dict:
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         }
 
+    # 🌟 [오타 및 차단 우회 완벽 수정 영역]
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
+                # 🌟 일반 검색어일 때, 유튜브 429 차단망이 계정 로그인(OAuth2)을 거부하지 못하도록 
+                # 내부 설정을 '모바일 웹 브라우저 단일 재생' 레이어로 강제 변환하여 8자리 코드를 유도합니다.
                 search_query = f"ytsearch1:{query}"
+                opts["extractor_args"]["youtube"]["player_client"] = ["mweb", "tvembed"]
 
             LOGGER.info("Searching: %s", search_query)
             info = ydl.extract_info(search_query, download=False)
@@ -277,8 +280,7 @@ def extract_info(query: str) -> dict:
         # 첫 번째 항목을 안전하게 가로챕니다.
         first = valid_entries[0]
 
-        # 🌟 [안전 반환 매칭]: tvembed 스마트 스트림이 추출해 온 
-        # 실시간 직통 오디오 소스 주소(url)를 가로채 재생 엔진으로 전달합니다.
+        # tvembed 스마트 스트림이 추출해 온 실시간 직통 오디오 소스 주소(url) 전달
         audio_url = first.get("url") or info.get("url")
         if audio_url and "googlevideo.com" in audio_url:
             first["webpage_url"] = audio_url
@@ -291,6 +293,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
 
 
 
