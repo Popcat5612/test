@@ -429,7 +429,7 @@ class GuildMusicState:
 
         if interaction.guild.voice_client is None:
 
-            self.voice = await channel.connect()
+            self.voice = await channel.connect(timeout=90.0, reconnect=True)
 
         else:
 
