@@ -215,12 +215,11 @@ def extract_info(query: str) -> dict:
     if os.path.exists(COOKIE_PATH):
         opts["cookiefile"] = COOKIE_PATH
 
-    # 🌟 [핵심 수정]: 유튜브 차단을 뚫기 위해 ios를 빼고, DASH 포맷 충돌을 일으키던 skip 옵션을 완전히 제거했습니다.
+    # 유튜브 차단을 뚫기 위해 web, android_music, mweb 조합 사용 (skip 완전 제거 완료)
     if not query.startswith(("http://", "https://")):
         opts["format"] = "bestaudio/best"
         opts["extractor_args"] = {
             "youtube": {
-                # 검색 결과 목록을 온전히 가져오기 위해 web, android_music, mweb 조합을 사용합니다.
                 "player_client": ["web", "android_music", "mweb"]
             }
         }
@@ -232,18 +231,13 @@ def extract_info(query: str) -> dict:
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
                 search_query = f"ytsearch1:{query}"
 
             LOGGER.info("Searching: %s", search_query)
-
-            info = ydl.extract_info(
-                search_query,
-                download=False
-            )
+            info = ydl.extract_info(search_query, download=False)
 
             if not info:
                 raise MusicError("검색 결과가 없어요.")
@@ -254,28 +248,17 @@ def extract_info(query: str) -> dict:
 
     # ytsearch 결과 처리
     if isinstance(info, dict) and info.get("_type") == "playlist":
-
         entries = info.get("entries")
-
         if entries is None:
             LOGGER.error("Entries is None")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        # generator -> list
         entries = list(entries)
         LOGGER.info("Entries count: %s", len(entries))
 
-        # 유효한 엔트리만 필터링
         valid_entries = [
             entry for entry in entries
-            if (
-                entry
-                and (
-                    entry.get("url")
-                    or entry.get("webpage_url")
-                    or entry.get("id")
-                )
-            )
+            if entry and (entry.get("url") or entry.get("webpage_url") or entry.get("id"))
         ]
 
         LOGGER.info("Valid entries count: %s", len(valid_entries))
@@ -284,11 +267,17 @@ def extract_info(query: str) -> dict:
             LOGGER.error("No valid entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        # 첫 번째 항목 [0]을 정확하게 추출합니다.
+        # 🌟 [여기서부터 수정 및 완성 영역]
+        # 첫 번째 항목을 안전하게 가로챕니다.
         first = valid_entries[0]
 
-        # webpage_url 없으면 생성
-        if not first.get("webpage_url"):
+        # 🌟 [버그 원천 차단 핵심 코드]: 
+        # 안드로이드 우회망이 수집한 오디오 실시간 주소(url)가 전체 info 본체나 entries 내부에 있는지 교차 검증합니다.
+        audio_url = first.get("url") or info.get("url")
+        if audio_url and "googlevideo.com" in audio_url:
+            # 실시간 스트리밍 재생 주소가 있다면 webpage_url 대신 이 주소를 강제로 꽂아줍니다!
+            first["webpage_url"] = audio_url
+        elif not first.get("webpage_url"):
             video_id = first.get("id")
             if video_id:
                 first["webpage_url"] = youtube_watch_url(video_id)
@@ -297,6 +286,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
 
 
 
