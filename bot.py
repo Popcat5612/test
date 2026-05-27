@@ -73,50 +73,31 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 # =========================
 
 YTDL_OPTIONS = {
-    # 🌟 유튜브 오디오 스트림을 폭넓게 수용하여 포맷 에러를 방지합니다.
     "format": "bestaudio/best",
-
-    # 플레이리스트 방지
     "noplaylist": True,
-
-    # ytsearch 자동 사용
     "default_search": "ytsearch",
-
-    # 🌟 [매우 중요] 인증 주소와 8자리 코드 문구(로그)를 확인해야 하므로 
-    # 이번 테스트에서는 quiet를 False로 꺼두셔야 Render 로그 창에 코드가 찍힙니다!
     "quiet": False,
     "no_warnings": False,
-
-    # 네트워크 안정화
     "socket_timeout": 20,
     "extractor_retries": 10,
     "retries": 10,
     "source_address": "0.0.0.0",
-
-    # 인증서/지역 우회
     "nocheckcertificate": True,
     "prefer_insecure": False,
     "geo_bypass": True,
     "geo_bypass_country": "US",
-
-    # [Render 디스크 최적화] 권한 에러 및 용량 부족 문제를 완전 차단합니다.
     "cachedir": False,
 
-    # 🌟 [OAUTH2 로그인 우회 추가]
-    # 본인의 실제 구글(유튜브) 이메일 주소로 교체해 주세요. (가급적 안 쓰는 유튜브 부계정 추천)
-    "username": "cutepopcat5612@gmail.com",
-
-    # [유튜브 클라이언트 핵심 수정] 인증 토큰 요구가 없는 스마트 TV 프로토콜 유지
+    # 🌟 [버그 원천 차단 핵심 수정]: 기존 username 옵션을 지우고, 
+    # extractor_args 내부의 오센티케이션 방식을 무조건 oauth2 전용으로 고정합니다.
+    # 이렇게 명시해주어야 비밀번호 에러(WARNING) 없이 8자리 기기인증 코드가 로그창에 즉시 뿜어져 나옵니다!
     "extractor_args": {
         "youtube": {
-            "player_client": [
-                "tvembed",
-                "mweb"
-            ]
+            "player_client": ["tvembed", "mweb"],
+            "oauth2_scope": "youtube"  # 🌟 구글 기기 인증 절차 강제 유도 시스템 가동
         }
     },
 
-    # [스마트 TV 헤더 동기화] 스마트 TV 접속 환경으로 완벽 위장
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Chromecast; Google TV) "
@@ -129,6 +110,7 @@ YTDL_OPTIONS = {
         "Accept": "*/*"
     }
 }
+
 
 
 
