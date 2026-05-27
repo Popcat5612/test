@@ -73,7 +73,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 # =========================
 
 YTDL_OPTIONS = {
-    # 🌟 [오디오 포맷] 유튜브 오디오 스트림을 폭넓게 수용하여 포맷 없음(403) 에러를 방지합니다.
+    # 🌟 유튜브 오디오 스트림을 폭넓게 수용하여 포맷 에러를 방지합니다.
     "format": "bestaudio/best",
 
     # 플레이리스트 방지
@@ -98,26 +98,21 @@ YTDL_OPTIONS = {
     "geo_bypass": True,
     "geo_bypass_country": "US",
 
-    # 🌟 [Render 디스크 최적화] 가상 서버 권한 에러 및 용량 부족 문제를 완전 차단합니다.
+    # [Render 디스크 최적화] 권한 에러 및 용량 부족 문제를 완전 차단합니다.
     "cachedir": False,
 
-    # 🌟 [유튜브 클라이언트 핵심 수정] 
-    # 토큰 에러를 내뿜는 ios를 제외하고, 보안 검문이 덜한 안드로이드 뮤직(android_music) 전용 규격을 투입합니다.
+    # 🌟 [유튜브 클라이언트 핵심 우회 세팅]
+    # android_music 오디오 스트림이 정상 수신되도록 충돌을 유발하던 skip 옵션을 완전히 삭제했습니다.
     "extractor_args": {
         "youtube": {
             "player_client": [
                 "android_music",
                 "mweb"
-            ],
-            # 오디오 싱크 밀림과 DASH 포맷 충돌을 제거합니다.
-            "skip": [
-                "dash",
-                "hls"
             ]
         }
     },
 
-    # 🌟 [헤더 동기화] 위의 player_client(android)와 실제 접속 환경 데이터를 완벽하게 일치시킵니다.
+    # [헤더 동기화] 위의 player_client(android)와 실제 접속 환경 데이터를 일치시킵니다.
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) "
@@ -220,12 +215,13 @@ def extract_info(query: str) -> dict:
     if os.path.exists(COOKIE_PATH):
         opts["cookiefile"] = COOKIE_PATH
 
-    # 🌟 [핵심 누락 보완]: 일반 검색어일 때 유튜브 보안 필터를 통과하기 위한 검색용 임시 설정입니다.
+    # 🌟 [핵심 수정]: 유튜브 차단을 뚫기 위해 ios를 빼고, DASH 포맷 충돌을 일으키던 skip 옵션을 완전히 제거했습니다.
     if not query.startswith(("http://", "https://")):
+        opts["format"] = "bestaudio/best"
         opts["extractor_args"] = {
             "youtube": {
-                "player_client": ["web", "ios", "mweb"],
-                "skip": ["dash", "hls"]
+                # 검색 결과 목록을 온전히 가져오기 위해 web, android_music, mweb 조합을 사용합니다.
+                "player_client": ["web", "android_music", "mweb"]
             }
         }
         opts["http_headers"] = {
@@ -257,7 +253,7 @@ def extract_info(query: str) -> dict:
         raise MusicError("유튜브 검색 실패")
 
     # ytsearch 결과 처리
-    if info.get("_type") == "playlist":
+    if isinstance(info, dict) and info.get("_type") == "playlist":
 
         entries = info.get("entries")
 
@@ -288,7 +284,7 @@ def extract_info(query: str) -> dict:
             LOGGER.error("No valid entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        # 🌟 [적용 완료]: 첫 번째 항목 [0]을 정확하게 추출합니다.
+        # 첫 번째 항목 [0]을 정확하게 추출합니다.
         first = valid_entries[0]
 
         # webpage_url 없으면 생성
@@ -301,6 +297,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
 
 
 async def resolve_stream_url(track: Track) -> str:
