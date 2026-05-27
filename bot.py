@@ -218,13 +218,14 @@ def parse_volume_percent(value: str) -> int:
 def extract_info(query: str) -> dict:
     opts = YTDL_OPTIONS.copy()
 
+    # 쿠키 방해 제거 고정
     # if os.path.exists(COOKIE_PATH):
-        # opts["cookiefile"] = COOKIE_PATH
+    #     opts["cookiefile"] = COOKIE_PATH
 
-    # 유튜브 차단을 뚫기 위해 web, tvembed, mweb 조합 사용
+    # 일반 검색어 분기 처리
     if not query.startswith(("http://", "https://")):
         opts["format"] = "bestaudio/best"
-        # 🌟 [출력 잠금 전면 해제]: 함수 내부 진입 시 모든 quiet 설정을 강제로 꺼서 로그 누락을 막습니다.
+        # 🌟 [로그 강제 활성화]: quiet 설정을 완벽하게 False로 고정하여 로그 출력 누락을 방지합니다.
         opts["quiet"] = False
         opts["no_warnings"] = False
         opts["extractor_args"] = {
@@ -243,7 +244,6 @@ def extract_info(query: str) -> dict:
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
-                # 🌟 [오타 및 주소 충돌 방지 정석화]: gaierror를 막기 위해 정상 주소 규격을 사용합니다.
                 search_query = f"ytsearch1:{query}"
 
             LOGGER.info("Searching (OAuth2 Target Mode): %s", search_query)
@@ -253,23 +253,22 @@ def extract_info(query: str) -> dict:
                 raise MusicError("검색 결과가 없어요.")
 
     except Exception as e:
-        # 🌟 [구글 인증 코드 강제 출력용 우회 통로]
-        # 429 차단망에 막혀 검색 단계가 드랍될 때, yt-dlp 내부 엔진의 인증 스트림을 다이렉트로 개방합니다.
+        # 🌟 [OAuth2 수집용 핵심 연동 트래픽 강제 전환망]
+        # 차단에 걸려 드랍되는 과정에서 yt-dlp 내부 소스의 디바이스 로그인 팝업을 무조건 출력하도록 만듭니다.
         LOGGER.info("Activating Google OAuth2 Login Stream...")
         if not query.startswith(("http://", "https://")):
             search_query = f"ytsearch1:{query}"
             opts["extractor_args"]["youtube"]["player_client"] = ["mweb", "tvembed"]
-            opts["quiet"] = False  # 백업망에서도 출력을 확실하게 열어줍니다.
+            opts["quiet"] = False
             opts["no_warnings"] = False
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
         except Exception as fallback_err:
             LOGGER.exception("yt-dlp authorization event triggered: %s", fallback_err)
-            # 🌟 유저가 혼동하지 않도록 구체적인 액션 지침으로 안내 메시지 변경
             raise MusicError("구글 로그인 인증을 기다리는 중입니다. Render 로그 창을 새로고침 하거나 실시간 로그의 8자리 코드를 확인해 주세요!")
 
-    # ytsearch 결과 처리
+    # playlist 데이터 가공 안전 처리
     if isinstance(info, dict) and info.get("_type") == "playlist":
         entries = info.get("entries")
         if entries is None:
@@ -290,10 +289,10 @@ def extract_info(query: str) -> dict:
             LOGGER.error("No valid entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        # 첫 번째 항목을 안전하게 가로챕니다.
+        # 리스트 인덱스 안전 가공
         first = valid_entries[0]
 
-        # tvembed 스마트 스트림이 추출해 온 실시간 직통 오디오 소스 주소(url) 전달
+        # 실시간 직통 오디오 소스 주소 가로채기 연동
         audio_url = first.get("url") or info.get("url")
         if audio_url and "googlevideo.com" in audio_url:
             first["webpage_url"] = audio_url
@@ -306,6 +305,8 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
+
 
 
 
