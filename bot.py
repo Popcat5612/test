@@ -82,9 +82,10 @@ YTDL_OPTIONS = {
     # ytsearch 자동 사용
     "default_search": "ytsearch",
 
-    # 로그 안정화
-    "quiet": True,
-    "no_warnings": True,
+    # 🌟 [매우 중요] 인증 주소와 8자리 코드 문구(로그)를 확인해야 하므로 
+    # 이번 테스트에서는 quiet를 False로 꺼두셔야 Render 로그 창에 코드가 찍힙니다!
+    "quiet": False,
+    "no_warnings": False,
 
     # 네트워크 안정화
     "socket_timeout": 20,
@@ -101,9 +102,11 @@ YTDL_OPTIONS = {
     # [Render 디스크 최적화] 권한 에러 및 용량 부족 문제를 완전 차단합니다.
     "cachedir": False,
 
-    # 🌟 [유튜브 클라이언트 핵심 수정]
-    # 인증 토큰(PO Token) 요구 조건이 전혀 없는 스마트 TV 전용 프로토콜인 tvembed 기반으로 고정합니다.
-    # 이전 로그에서 에러를 뿜게 만들던 android_music 레이어와 skip 옵션을 완전히 청소했습니다!
+    # 🌟 [OAUTH2 로그인 우회 추가]
+    # 본인의 실제 구글(유튜브) 이메일 주소로 교체해 주세요. (가급적 안 쓰는 유튜브 부계정 추천)
+    "username": "cutepopcat5612@gmail.com",
+
+    # [유튜브 클라이언트 핵심 수정] 인증 토큰 요구가 없는 스마트 TV 프로토콜 유지
     "extractor_args": {
         "youtube": {
             "player_client": [
@@ -113,8 +116,7 @@ YTDL_OPTIONS = {
         }
     },
 
-    # 🌟 [스마트 TV 헤더 동기화]
-    # 접속 기기 식별 데이터를 구글 크롬캐스트(스마트 TV) 환경으로 완벽하게 위장하여 차단망을 통과합니다.
+    # [스마트 TV 헤더 동기화] 스마트 TV 접속 환경으로 완벽 위장
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Chromecast; Google TV) "
@@ -127,6 +129,7 @@ YTDL_OPTIONS = {
         "Accept": "*/*"
     }
 }
+
 
 
 
