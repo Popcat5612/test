@@ -101,23 +101,25 @@ YTDL_OPTIONS = {
     # [Render 디스크 최적화] 권한 에러 및 용량 부족 문제를 완전 차단합니다.
     "cachedir": False,
 
-    # 🌟 [유튜브 클라이언트 핵심 우회 세팅]
-    # android_music 오디오 스트림이 정상 수신되도록 충돌을 유발하던 skip 옵션을 완전히 삭제했습니다.
+    # 🌟 [유튜브 클라이언트 핵심 수정]
+    # 인증 토큰(PO Token) 요구 조건이 전혀 없는 스마트 TV 전용 프로토콜인 tvembed 기반으로 고정합니다.
+    # 이전 로그에서 에러를 뿜게 만들던 android_music 레이어와 skip 옵션을 완전히 청소했습니다!
     "extractor_args": {
         "youtube": {
             "player_client": [
-                "android_music",
+                "tvembed",
                 "mweb"
             ]
         }
     },
 
-    # [헤더 동기화] 위의 player_client(android)와 실제 접속 환경 데이터를 일치시킵니다.
+    # 🌟 [스마트 TV 헤더 동기화]
+    # 접속 기기 식별 데이터를 구글 크롬캐스트(스마트 TV) 환경으로 완벽하게 위장하여 차단망을 통과합니다.
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) "
+            "Mozilla/5.0 (Chromecast; Google TV) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Mobile Safari/537.36"
+            "Chrome/114.0.0.0 Safari/537.36"
         ),
         "Accept-Language": (
             "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
@@ -125,6 +127,7 @@ YTDL_OPTIONS = {
         "Accept": "*/*"
     }
 }
+
 
 
 
@@ -215,16 +218,17 @@ def extract_info(query: str) -> dict:
     if os.path.exists(COOKIE_PATH):
         opts["cookiefile"] = COOKIE_PATH
 
-    # 유튜브 차단을 뚫기 위해 web, android_music, mweb 조합 사용 (skip 완전 제거 완료)
+    # 🌟 [핵심 수정]: 인증 토큰 에러를 유발하는 android_music을 도려내고, 
+    # 차단 검문과 토큰 요구가 전혀 없는 TV 전용 스마트 프로토콜 tvembed 조합으로 완벽하게 교체합니다.
     if not query.startswith(("http://", "https://")):
         opts["format"] = "bestaudio/best"
         opts["extractor_args"] = {
             "youtube": {
-                "player_client": ["web", "android_music", "mweb"]
+                "player_client": ["web", "tvembed", "mweb"]
             }
         }
         opts["http_headers"] = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Chromecast; Google TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
             "Accept": "*/*",
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         }
@@ -267,15 +271,13 @@ def extract_info(query: str) -> dict:
             LOGGER.error("No valid entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        # 🌟 [여기서부터 수정 및 완성 영역]
         # 첫 번째 항목을 안전하게 가로챕니다.
         first = valid_entries[0]
 
-        # 🌟 [버그 원천 차단 핵심 코드]: 
-        # 안드로이드 우회망이 수집한 오디오 실시간 주소(url)가 전체 info 본체나 entries 내부에 있는지 교차 검증합니다.
+        # 🌟 [안전 반환 매칭]: tvembed 스마트 스트림이 추출해 온 
+        # 실시간 직통 오디오 소스 주소(url)를 가로채 재생 엔진으로 전달합니다.
         audio_url = first.get("url") or info.get("url")
         if audio_url and "googlevideo.com" in audio_url:
-            # 실시간 스트리밍 재생 주소가 있다면 webpage_url 대신 이 주소를 강제로 꽂아줍니다!
             first["webpage_url"] = audio_url
         elif not first.get("webpage_url"):
             video_id = first.get("id")
