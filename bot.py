@@ -200,19 +200,22 @@ def parse_volume_percent(value: str) -> int:
 def extract_info(query: str) -> dict:
     opts = YTDL_OPTIONS.copy()
 
-    # 쿠키 방해 제거 고정
+    # 쿠키 방해 제거 유지
     # if os.path.exists(COOKIE_PATH):
     #     opts["cookiefile"] = COOKIE_PATH
 
     # 일반 검색어 분기 처리
     if not query.startswith(("http://", "https://")):
         opts["format"] = "bestaudio/best"
-        # 🌟 [로그 강제 활성화]: quiet 설정을 완벽하게 False로 고정하여 로그 출력 누락을 방지합니다.
         opts["quiet"] = False
         opts["no_warnings"] = False
+        
+        # 🌟 [핵심 수정]: 임시 설정 블록 내부에도 oauth2_scope 플래그를 누락 없이 확실하게 주입합니다!
+        # 이렇게 해야 검색 필터가 덮어씌워지더라도 구글 인증 코드가 로그창에 무조건 출력됩니다.
         opts["extractor_args"] = {
             "youtube": {
-                "player_client": ["web", "tvembed", "mweb"]
+                "player_client": ["web", "tvembed", "mweb"],
+                "oauth2_scope": "youtube"  # 8자리 기기인증 코드 강제 활성화 플래그 🌟
             }
         }
         opts["http_headers"] = {
@@ -235,12 +238,17 @@ def extract_info(query: str) -> dict:
                 raise MusicError("검색 결과가 없어요.")
 
     except Exception as e:
-        # 🌟 [OAuth2 수집용 핵심 연동 트래픽 강제 전환망]
-        # 차단에 걸려 드랍되는 과정에서 yt-dlp 내부 소스의 디바이스 로그인 팝업을 무조건 출력하도록 만듭니다.
+        # 🌟 [OAuth2 수집용 최종 예외 우회망]
+        # 차단에 걸려 실패하는 과정에서도 8자리 로그가 무조건 수면 위로 올라오도록 세팅을 다시 고정합니다.
         LOGGER.info("Activating Google OAuth2 Login Stream...")
         if not query.startswith(("http://", "https://")):
             search_query = f"ytsearch1:{query}"
-            opts["extractor_args"]["youtube"]["player_client"] = ["mweb", "tvembed"]
+            opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["mweb", "tvembed"],
+                    "oauth2_scope": "youtube"  # 백업망에도 강제 고정 🌟
+                }
+            }
             opts["quiet"] = False
             opts["no_warnings"] = False
         try:
@@ -271,7 +279,6 @@ def extract_info(query: str) -> dict:
             LOGGER.error("No valid entries found")
             raise MusicError("검색 결과를 찾지 못했어요.")
 
-        # 리스트 인덱스 안전 가공
         first = valid_entries[0]
 
         # 실시간 직통 오디오 소스 주소 가로채기 연동
@@ -287,6 +294,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
 
 
 
