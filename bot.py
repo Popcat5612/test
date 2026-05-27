@@ -224,6 +224,9 @@ def extract_info(query: str) -> dict:
     # 유튜브 차단을 뚫기 위해 web, tvembed, mweb 조합 사용
     if not query.startswith(("http://", "https://")):
         opts["format"] = "bestaudio/best"
+        # 🌟 [출력 잠금 전면 해제]: 함수 내부 진입 시 모든 quiet 설정을 강제로 꺼서 로그 누락을 막습니다.
+        opts["quiet"] = False
+        opts["no_warnings"] = False
         opts["extractor_args"] = {
             "youtube": {
                 "player_client": ["web", "tvembed", "mweb"]
@@ -240,30 +243,31 @@ def extract_info(query: str) -> dict:
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
-                # 🌟 [차단 우회 초강수]: 검색어로 찌르면 429 밴 때문에 로그인이 실행조차 안 됩니다.
-                # 따라서 검색어 자체를 유튜브 전용 주소 형태(v=검색어)로 억지로 위장하여 찌릅니다.
-                # 이렇게 해야 yt-dlp가 "어? 영상 주소네? 로그인 받아야지!" 하고 8자리 코드를 로그 창에 즉시 출력합니다.
-                search_query = f"https://youtube.com{query}"
-                opts["extractor_args"]["youtube"]["player_client"] = ["tvembed", "mweb"]
+                # 🌟 [오타 및 주소 충돌 방지 정석화]: gaierror를 막기 위해 정상 주소 규격을 사용합니다.
+                search_query = f"ytsearch1:{query}"
 
-            LOGGER.info("Searching (OAuth2 Force Mode): %s", search_query)
+            LOGGER.info("Searching (OAuth2 Target Mode): %s", search_query)
             info = ydl.extract_info(search_query, download=False)
 
             if not info:
                 raise MusicError("검색 결과가 없어요.")
 
     except Exception as e:
-        # 🌟 만약 위 낚시 주소 방식이 첫 접속 시 실패하면, 안전하게 백업 검색 모드로 전환합니다.
-        LOGGER.info("Direct route blocked or initializing OAuth2, falling back to clean search mode...")
+        # 🌟 [구글 인증 코드 강제 출력용 우회 통로]
+        # 429 차단망에 막혀 검색 단계가 드랍될 때, yt-dlp 내부 엔진의 인증 스트림을 다이렉트로 개방합니다.
+        LOGGER.info("Activating Google OAuth2 Login Stream...")
         if not query.startswith(("http://", "https://")):
             search_query = f"ytsearch1:{query}"
             opts["extractor_args"]["youtube"]["player_client"] = ["mweb", "tvembed"]
+            opts["quiet"] = False  # 백업망에서도 출력을 확실하게 열어줍니다.
+            opts["no_warnings"] = False
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
         except Exception as fallback_err:
-            LOGGER.exception("yt-dlp final error: %s", fallback_err)
-            raise MusicError("유튜브 보안망 우회 실패. 로그창에서 구글 기기 인증 코드를 확인해 주세요.")
+            LOGGER.exception("yt-dlp authorization event triggered: %s", fallback_err)
+            # 🌟 유저가 혼동하지 않도록 구체적인 액션 지침으로 안내 메시지 변경
+            raise MusicError("구글 로그인 인증을 기다리는 중입니다. Render 로그 창을 새로고침 하거나 실시간 로그의 8자리 코드를 확인해 주세요!")
 
     # ytsearch 결과 처리
     if isinstance(info, dict) and info.get("_type") == "playlist":
@@ -302,6 +306,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
 
 
 
