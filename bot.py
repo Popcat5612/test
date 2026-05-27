@@ -339,8 +339,17 @@ async def build_track(
         query
     )
 
+    # 🌟 [안전장치 1]: 만약 extract_info가 리스트 형태로 결과를 반환했다면 첫 번째 항목을 꺼냅니다.
+    if isinstance(info, list):
+        if len(info) == 0:
+            raise MusicError("검색 결과가 없어요.")
+        info = info[0]
+
+    # 🌟 [안전장치 2]: 최신 android_music 우회 규격은 직접적인 스트리밍 주소(url)를 넘겨주므로, 
+    # 기존 webpage_url 필드가 비어있다면 url 필드를 최우선으로 가로채어 에러를 방지합니다.
     webpage_url = (
         info.get("webpage_url")
+        or info.get("url")
         or info.get("original_url")
     )
 
@@ -348,6 +357,10 @@ async def build_track(
 
     if not webpage_url or not title:
         raise MusicError("곡 정보를 읽을 수 없어요.")
+
+    # 🌟 [최종 정상 주소 보정]: 만약 주소가 id 값으로만 되어 있다면 정상적인 watch 링크로 복원합니다.
+    if webpage_url and not webpage_url.startswith(("http://", "https://")):
+        webpage_url = youtube_watch_url(webpage_url)
 
     return Track(
         title=title,
@@ -358,6 +371,7 @@ async def build_track(
         thumbnail=info.get("thumbnail"),
         source_id=info.get("id"),
     )
+
 
 
 # =========================
