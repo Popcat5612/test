@@ -218,8 +218,8 @@ def parse_volume_percent(value: str) -> int:
 def extract_info(query: str) -> dict:
     opts = YTDL_OPTIONS.copy()
 
-    if os.path.exists(COOKIE_PATH):
-        opts["cookiefile"] = COOKIE_PATH
+    # if os.path.exists(COOKIE_PATH):
+        # opts["cookiefile"] = COOKIE_PATH
 
     # 🌟 [핵심 수정]: 인증 토큰 에러를 유발하는 android_music을 도려내고, 
     # 차단 검문과 토큰 요구가 전혀 없는 TV 전용 스마트 프로토콜 tvembed 조합으로 완벽하게 교체합니다.
