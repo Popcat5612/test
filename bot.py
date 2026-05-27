@@ -235,26 +235,35 @@ def extract_info(query: str) -> dict:
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         }
 
-    # 🌟 [오타 및 차단 우회 완벽 수정 영역]
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
-                # 🌟 일반 검색어일 때, 유튜브 429 차단망이 계정 로그인(OAuth2)을 거부하지 못하도록 
-                # 내부 설정을 '모바일 웹 브라우저 단일 재생' 레이어로 강제 변환하여 8자리 코드를 유도합니다.
-                search_query = f"ytsearch1:{query}"
-                opts["extractor_args"]["youtube"]["player_client"] = ["mweb", "tvembed"]
+                # 🌟 [차단 우회 초강수]: 검색어로 찌르면 429 밴 때문에 로그인이 실행조차 안 됩니다.
+                # 따라서 검색어 자체를 유튜브 전용 주소 형태(v=검색어)로 억지로 위장하여 찌릅니다.
+                # 이렇게 해야 yt-dlp가 "어? 영상 주소네? 로그인 받아야지!" 하고 8자리 코드를 로그 창에 즉시 출력합니다.
+                search_query = f"https://youtube.com{query}"
+                opts["extractor_args"]["youtube"]["player_client"] = ["tvembed", "mweb"]
 
-            LOGGER.info("Searching: %s", search_query)
+            LOGGER.info("Searching (OAuth2 Force Mode): %s", search_query)
             info = ydl.extract_info(search_query, download=False)
 
             if not info:
                 raise MusicError("검색 결과가 없어요.")
 
     except Exception as e:
-        LOGGER.exception("yt-dlp error: %s", e)
-        raise MusicError("유튜브 검색 실패")
+        # 🌟 만약 위 낚시 주소 방식이 첫 접속 시 실패하면, 안전하게 백업 검색 모드로 전환합니다.
+        LOGGER.info("Direct route blocked or initializing OAuth2, falling back to clean search mode...")
+        if not query.startswith(("http://", "https://")):
+            search_query = f"ytsearch1:{query}"
+            opts["extractor_args"]["youtube"]["player_client"] = ["mweb", "tvembed"]
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(search_query, download=False)
+        except Exception as fallback_err:
+            LOGGER.exception("yt-dlp final error: %s", fallback_err)
+            raise MusicError("유튜브 보안망 우회 실패. 로그창에서 구글 기기 인증 코드를 확인해 주세요.")
 
     # ytsearch 결과 처리
     if isinstance(info, dict) and info.get("_type") == "playlist":
@@ -293,6 +302,7 @@ def extract_info(query: str) -> dict:
         return first
 
     return info
+
 
 
 
