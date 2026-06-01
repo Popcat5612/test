@@ -55,6 +55,9 @@ logging.basicConfig(
 
 LOGGER = logging.getLogger("music-bot")
 
+LOGGER.info("Node path: %s", shutil.which("node"))
+LOGGER.info("FFmpeg path: %s", shutil.which("ffmpeg"))
+
 
 # =========================
 # FFMPEG
