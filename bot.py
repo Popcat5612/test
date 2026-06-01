@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import os
 import shutil
@@ -79,35 +80,22 @@ YTDL_OPTIONS = {
     "quiet": False,
     "no_warnings": False,
     "socket_timeout": 20,
-    "extractor_retries": 10,
-    "retries": 10,
-    "source_address": "0.0.0.0",
-    "nocheckcertificate": True,
-    "prefer_insecure": False,
-    "geo_bypass": True,
-    "geo_bypass_country": "US",
+    "extractor_retries": 5,
+    "retries": 5,
     "cachedir": False,
 
-    # 🌟 [버그 원천 차단 핵심 수정]: 기존 username 옵션을 지우고, 
-    # extractor_args 내부의 오센티케이션 방식을 무조건 oauth2 전용으로 고정합니다.
-    # 이렇게 명시해주어야 비밀번호 에러(WARNING) 없이 8자리 기기인증 코드가 로그창에 즉시 뿜어져 나옵니다!
     "extractor_args": {
         "youtube": {
-            "player_client": ["tvembed", "mweb"],
-            "oauth2_scope": "youtube"  # 🌟 구글 기기 인증 절차 강제 유도 시스템 가동
+            "player_client": ["mweb"]
         }
     },
 
     "http_headers": {
         "User-Agent": (
-            "Mozilla/5.0 (Chromecast; Google TV) "
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/114.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": (
-            "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-        ),
-        "Accept": "*/*"
+            "Chrome/137.0.0.0 Safari/537.36"
+        )
     }
 }
 
@@ -198,109 +186,60 @@ def parse_volume_percent(value: str) -> int:
 # =========================
 
 def extract_info(query: str) -> dict:
-    opts = YTDL_OPTIONS.copy()
 
-    # 쿠키 방해 제거 유지
-    # if os.path.exists(COOKIE_PATH):
-    #     opts["cookiefile"] = COOKIE_PATH
+    opts = copy.deepcopy(YTDL_OPTIONS)
 
-    # 일반 검색어 분기 처리
-    if not query.startswith(("http://", "https://")):
-        opts["format"] = "bestaudio/best"
-        opts["quiet"] = False
-        opts["no_warnings"] = False
-        
-        # 🌟 [핵심 수정]: 임시 설정 블록 내부에도 oauth2_scope 플래그를 누락 없이 확실하게 주입합니다!
-        # 이렇게 해야 검색 필터가 덮어씌워지더라도 구글 인증 코드가 로그창에 무조건 출력됩니다.
-        opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["web", "tvembed", "mweb"],
-                "oauth2_scope": "youtube"  # 8자리 기기인증 코드 강제 활성화 플래그 🌟
-            }
-        }
-        opts["http_headers"] = {
-            "User-Agent": "Mozilla/5.0 (Chromecast; Google TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        }
+    if os.path.exists(COOKIE_PATH):
+        opts["cookiefile"] = COOKIE_PATH
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
+
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
                 search_query = f"ytsearch1:{query}"
 
-            LOGGER.info("Searching (OAuth2 Target Mode): %s", search_query)
-            info = ydl.extract_info(search_query, download=False)
+            LOGGER.info("Searching: %s", search_query)
+
+            info = ydl.extract_info(
+                search_query,
+                download=False
+            )
 
             if not info:
                 raise MusicError("검색 결과가 없어요.")
 
     except Exception as e:
-        # 🌟 [OAuth2 수집용 최종 예외 우회망]
-        # 차단에 걸려 실패하는 과정에서도 8자리 로그가 무조건 수면 위로 올라오도록 세팅을 다시 고정합니다.
-        LOGGER.info("Activating Google OAuth2 Login Stream...")
-        if not query.startswith(("http://", "https://")):
-            search_query = f"ytsearch1:{query}"
-            opts["extractor_args"] = {
-                "youtube": {
-                    "player_client": ["mweb", "tvembed"],
-                    "oauth2_scope": "youtube"  # 백업망에도 강제 고정 🌟
-                }
-            }
-            opts["quiet"] = False
-            opts["no_warnings"] = False
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(search_query, download=False)
-        except Exception as fallback_err:
-            LOGGER.exception("yt-dlp authorization event triggered: %s", fallback_err)
-            raise MusicError("구글 로그인 인증을 기다리는 중입니다. Render 로그 창을 새로고침 하거나 실시간 로그의 8자리 코드를 확인해 주세요!")
+        LOGGER.exception("yt-dlp failed: %s", e)
+        raise MusicError(
+            "유튜브 정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요."
+        )
 
-    # playlist 데이터 가공 안전 처리
     if isinstance(info, dict) and info.get("_type") == "playlist":
-        entries = info.get("entries")
-        if entries is None:
-            LOGGER.error("Entries is None")
-            raise MusicError("검색 결과를 찾지 못했어요.")
 
-        entries = list(entries)
-        LOGGER.info("Entries count: %s", len(entries))
-
-        valid_entries = [
-            entry for entry in entries
-            if entry and (entry.get("url") or entry.get("webpage_url") or entry.get("id"))
+        entries = [
+            entry
+            for entry in info.get("entries", [])
+            if entry
         ]
 
-        LOGGER.info("Valid entries count: %s", len(valid_entries))
+        if not entries:
+            raise MusicError("검색 결과가 없어요.")
 
-        if not valid_entries:
-            LOGGER.error("No valid entries found")
-            raise MusicError("검색 결과를 찾지 못했어요.")
+        first = entries[0]
 
-        first = valid_entries[0]
-
-        # 실시간 직통 오디오 소스 주소 가로채기 연동
-        audio_url = first.get("url") or info.get("url")
-        if audio_url and "googlevideo.com" in audio_url:
-            first["webpage_url"] = audio_url
-        elif not first.get("webpage_url"):
+        if not first.get("webpage_url"):
             video_id = first.get("id")
-            if video_id:
-                first["webpage_url"] = youtube_watch_url(video_id)
 
-        LOGGER.info("Selected video: %s", first.get("title"))
+            if video_id:
+                first["webpage_url"] = youtube_watch_url(
+                    video_id
+                )
+
         return first
 
     return info
-
-
-
-
-
-
-
 
 
 
