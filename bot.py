@@ -84,6 +84,12 @@ YTDL_OPTIONS = {
     "retries": 5,
     "cachedir": False,
 
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["web"]
+        }
+    },
+
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -178,7 +184,16 @@ def extract_info(query: str) -> dict:
 
     opts = copy.deepcopy(YTDL_OPTIONS)
 
+    LOGGER.info(
+        "Cookie exists: %s",
+        os.path.exists(COOKIE_PATH)
+    )
+
     if os.path.exists(COOKIE_PATH):
+        LOGGER.info(
+            "Using cookie file: %s",
+            COOKIE_PATH
+        )
         opts["cookiefile"] = COOKIE_PATH
 
     try:
@@ -189,7 +204,10 @@ def extract_info(query: str) -> dict:
             else:
                 search_query = f"ytsearch1:{query}"
 
-            LOGGER.info("Searching: %s", search_query)
+            LOGGER.info(
+                "Searching: %s",
+                search_query
+            )
 
             info = ydl.extract_info(
                 search_query,
@@ -197,15 +215,25 @@ def extract_info(query: str) -> dict:
             )
 
             if not info:
-                raise MusicError("검색 결과가 없어요.")
+                raise MusicError(
+                    "검색 결과가 없어요."
+                )
 
     except Exception as e:
-        LOGGER.exception("yt-dlp failed: %s", e)
+
+        LOGGER.exception(
+            "yt-dlp failed: %s",
+            e
+        )
+
         raise MusicError(
             "유튜브 정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요."
         )
 
-    if isinstance(info, dict) and info.get("_type") == "playlist":
+    if (
+        isinstance(info, dict)
+        and info.get("_type") == "playlist"
+    ):
 
         entries = [
             entry
@@ -214,16 +242,19 @@ def extract_info(query: str) -> dict:
         ]
 
         if not entries:
-            raise MusicError("검색 결과가 없어요.")
+            raise MusicError(
+                "검색 결과가 없어요."
+            )
 
         first = entries[0]
 
         if not first.get("webpage_url"):
+
             video_id = first.get("id")
 
             if video_id:
-                first["webpage_url"] = youtube_watch_url(
-                    video_id
+                first["webpage_url"] = (
+                    youtube_watch_url(video_id)
                 )
 
         return first
