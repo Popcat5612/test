@@ -84,12 +84,6 @@ YTDL_OPTIONS = {
     "retries": 5,
     "cachedir": False,
 
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["mweb"]
-        }
-    },
-
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -98,11 +92,6 @@ YTDL_OPTIONS = {
         )
     }
 }
-
-
-
-
-
 
 
 # =========================
