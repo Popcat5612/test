@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 apt-get update
-apt-get install -y nodejs npm ffmpeg
+
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y nodejs ffmpeg
 
 echo "===== NODE ====="
 node -v
