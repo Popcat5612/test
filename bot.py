@@ -89,7 +89,8 @@ YTDL_OPTIONS = {
 
     "extractor_args": {
         "youtube": {
-            "player_client": ["web"]
+            "player_client": ["android"],
+            "player_skip": ["webpage"]
         }
     },
 
@@ -124,11 +125,7 @@ class Track:
     requester_name: str
     thumbnail: str | None = None
     source_id: str | None = None
-
-    @property
-    def requester_mention(self) -> str:
-        return self.requester_name
-
+    stream_url: str | None = None
 
 # =========================
 # UTIL
