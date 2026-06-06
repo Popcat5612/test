@@ -89,7 +89,6 @@ YTDL_OPTIONS = {
 
     "extractor_args": {
         "youtube": {
-            "player_client": ["android"],
             "player_skip": ["webpage"]
         }
     },
