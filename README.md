@@ -12,10 +12,7 @@
 - `/현재곡`: 음악 플레이어 패널 만들기 또는 갱신
 - `/정지`, `/나가기`: 재생 중지 후 음성 채널 나가기
 - 음악 플레이어 패널: 현재곡을 계속 보여주고 아래 버튼으로 `재생`, `대기열`, `건너뛰기`, `일시정지`, `정지`, `볼륨` 조작
-<<<<<<< HEAD
 - 자동재생: 곡이 끝났고 대기열이 비어 있으면 YouTube 연관곡을 이어서 재생
-=======
->>>>>>> 8fc197958d29c1f1440da89c8ac3414518ef6d51
 
 ## 준비
 
@@ -68,17 +65,15 @@ python bot.py
 음악이 시작되면 채널에 플레이어 패널이 생기고, `재생` 버튼을 누르면 검색어 또는 URL 입력창이 뜹니다.
 플레이어 패널은 곡을 신청하거나 대기열을 확인할 때 갱신됩니다.
 `/현재곡`을 실행하면 플레이어 패널을 다시 만들거나 수동으로 갱신할 수 있습니다.
-<<<<<<< HEAD
 재생 중인 곡과 대기열이 모두 없으면 패널에는 봇 프로필 이미지가 표시됩니다.
-=======
->>>>>>> 8fc197958d29c1f1440da89c8ac3414518ef6d51
 
 ## Render 배포
 
-이 프로젝트는 별도 Git repo로 올린 뒤 Render에서 Background Worker로 생성하면 됩니다.
+이 프로젝트는 Render에서 Web Service로 실행할 수 있습니다. `bot.py`가 디스코드 봇을 실행하고, `keep_alive.py`가 Render Web Service용 HTTP 포트를 열어줍니다.
 
-- Build Command: `pip install -r requirements.txt`
+- Build Command: `chmod +x render-build.sh && ./render-build.sh`
 - Start Command: `python bot.py`
 - Environment Variable: `DISCORD_TOKEN`
+- Optional Secret File: `cookies.txt`
 
-`render.yaml`도 포함되어 있어서 Render Blueprint로 연결할 수 있습니다. 토큰은 파일에 넣지 말고 Render Dashboard의 Environment에서 입력하세요.
+`render.yaml`도 Web Service 기준으로 포함되어 있어서 Render Blueprint로 연결할 수 있습니다. 토큰과 쿠키는 파일에 넣지 말고 Render Dashboard의 Environment에서 입력하세요.
