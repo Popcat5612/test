@@ -77,32 +77,21 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 # =========================
 
 YTDL_OPTIONS = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
     "default_search": "ytsearch",
     "quiet": False,
     "no_warnings": False,
-    "socket_timeout": 20,
-    "extractor_retries": 5,
-    "retries": 5,
+    "socket_timeout": 30,
+    "extractor_retries": 3,
+    "retries": 3,
     "cachedir": False,
-    "cookiefile": "cookies.txt",  # 기존 쿠키 유지
-
-    # 🔥 [치트키 1] yt-dlp에게 컴퓨터(Node)를 거치지 말고 
-    # 파이썬 자체 내부 챌린지 해석기를 강제로 쓰라고 명령합니다.
-    "dynamic_mp4_to_m3u8": True,
-    
-    # 🔥 [치트키 2] Render 환경 변수로 깔린 Node.js 실행 파일 경로를 강제로 찔러줍니다.
-    # (치트키 1이 막힐 때를 대비한 2중 방어선)
-    "javascript_executable": "/opt/render/project/nodes/node/bin/node",
-
-    # 🔥 [치트키 3] 유튜브 차단 알고리즘을 피하기 위해 최신 ios/android 모바일 클라이언트로 변장합니다.
+    "cookiefile": "/tmp/cookies.txt",  # 절대경로
     "extractor_args": {
         "youtube": {
-            "clients": ["ios", "android", "web"]
+            "clients": ["ios", "android"]  # web 제거
         }
     },
-
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
