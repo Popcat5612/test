@@ -2,10 +2,8 @@ services:
   - type: worker
     name: discord-music-bot
     runtime: python
-    buildCommand: |
-      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-      npm install -g npm
-      pip install -r requirements.txt
+    # 💡 1. 쉘 스크립트(render-build.sh)가 있다면 그것을 실행하도록 단순화합니다.
+    buildCommand: chmod +x render-build.sh && ./render-build.sh
     startCommand: python bot.py
     envVars:
       - key: DISCORD_TOKEN
@@ -14,3 +12,6 @@ services:
         value: INFO
       - key: PYTHON_VERSION
         value: 3.12.8
+      # 💡 2. 환경 변수에 NODE_VERSION을 명시하면 Render가 알아서 Node.js를 깔아줍니다!
+      - key: NODE_VERSION
+        value: 20.11.0
