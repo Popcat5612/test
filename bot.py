@@ -77,7 +77,7 @@ FFMPEG_OPTIONS = "-vn -loglevel warning"
 # =========================
 
 YTDL_OPTIONS = {
-    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "noplaylist": True,
     "default_search": "ytsearch",
     "quiet": False,
@@ -86,10 +86,15 @@ YTDL_OPTIONS = {
     "extractor_retries": 3,
     "retries": 3,
     "cachedir": False,
-    "cookiefile": "/tmp/cookies.txt",  # 절대경로
+    "source_address": "0.0.0.0",
+    "js_runtimes": {
+        "node": {
+            "path": None,
+        },
+    },
     "extractor_args": {
         "youtube": {
-            "clients": ["ios", "android"]  # web 제거
+            "player_client": ["android", "ios"],
         }
     },
     "http_headers": {
