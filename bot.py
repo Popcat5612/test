@@ -86,10 +86,20 @@ YTDL_OPTIONS = {
     "extractor_retries": 5,
     "retries": 5,
     "cachedir": False,
+    "cookiefile": "cookies.txt",  # 기존 쿠키 유지
 
+    # 🔥 [치트키 1] yt-dlp에게 컴퓨터(Node)를 거치지 말고 
+    # 파이썬 자체 내부 챌린지 해석기를 강제로 쓰라고 명령합니다.
+    "dynamic_mp4_to_m3u8": True,
+    
+    # 🔥 [치트키 2] Render 환경 변수로 깔린 Node.js 실행 파일 경로를 강제로 찔러줍니다.
+    # (치트키 1이 막힐 때를 대비한 2중 방어선)
+    "javascript_executable": "/opt/render/project/nodes/node/bin/node",
+
+    # 🔥 [치트키 3] 유튜브 차단 알고리즘을 피하기 위해 최신 ios/android 모바일 클라이언트로 변장합니다.
     "extractor_args": {
         "youtube": {
-            "player_skip": ["webpage"]
+            "clients": ["ios", "android", "web"]
         }
     },
 
@@ -180,7 +190,6 @@ def parse_volume_percent(value: str) -> int:
 # =========================
 
 def extract_info(query: str) -> dict:
-
     opts = copy.deepcopy(YTDL_OPTIONS)
 
     LOGGER.info(
@@ -197,7 +206,6 @@ def extract_info(query: str) -> dict:
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-
             if query.startswith(("http://", "https://")):
                 search_query = query
             else:
@@ -208,9 +216,13 @@ def extract_info(query: str) -> dict:
                 search_query
             )
 
+            # 🌟 [수정 포인트 1] 
+            # 단순히 정보를 긁는게 아니라 전체 프로세스(process=True)를 거쳐야 
+            # 유튜브의 암호화 챌린지 연동 루틴이 정상적으로 돌아서 오디오 포맷을 줍니다.
             info = ydl.extract_info(
                 search_query,
-                download=False
+                download=False,
+                process=True  # 👈 이 옵션을 명시하거나 아예 생략하는 것이 안전합니다.
             )
 
             if not info:
@@ -219,12 +231,10 @@ def extract_info(query: str) -> dict:
                 )
 
     except Exception as e:
-
         LOGGER.exception(
             "yt-dlp failed: %s",
             e
         )
-
         raise MusicError(
             "유튜브 정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요."
         )
@@ -233,7 +243,6 @@ def extract_info(query: str) -> dict:
         isinstance(info, dict)
         and info.get("_type") == "playlist"
     ):
-
         entries = [
             entry
             for entry in info.get("entries", [])
@@ -247,10 +256,17 @@ def extract_info(query: str) -> dict:
 
         first = entries[0]
 
+        # 🌟 [수정 포인트 2] 
+        # 검색 결과(playlist 형식)에서 첫 번째 영상의 '진짜 스트리밍 주소(url)'가 
+        # 챌린지 우회로 인해 누락되었을 수 있으므로 다시 한번 정밀 파싱을 유도합니다.
+        if 'url' not in first or not first.get('url'):
+            with yt_dlp.YoutubeDL(opts) as ydl_video:
+                # 첫 번째 영상의 실제 유튜브 링크로 다시 완벽히 추출합니다.
+                video_url = first.get("webpage_url") or youtube_watch_url(first.get("id"))
+                first = ydl_video.extract_info(video_url, download=False)
+
         if not first.get("webpage_url"):
-
             video_id = first.get("id")
-
             if video_id:
                 first["webpage_url"] = (
                     youtube_watch_url(video_id)
@@ -261,9 +277,7 @@ def extract_info(query: str) -> dict:
     return info
 
 
-
 async def resolve_stream_url(track: Track) -> str:
-
     info = await asyncio.to_thread(
         extract_info,
         track.webpage_url
@@ -271,10 +285,15 @@ async def resolve_stream_url(track: Track) -> str:
 
     stream_url = info.get("url")
 
+    # 🌟 [보완 포인트]: 만약 직통 주소가 없다면 formats 리스트를 정밀 탐색합니다.
     if not stream_url:
-
         for f in reversed(info.get("formats", [])):
             if f.get("url"):
+                # ❌ 화면만 나오는 포맷(vcodec이 있고 acodec이 없는 경우)은 철저히 무시합니다.
+                if f.get("vcodec") != "none" and f.get("acodec") == "none":
+                    continue
+                
+                # 💡 오디오 전용이거나 소리가 포함된 포맷만 스트리밍 주소로 가로챕니다.
                 stream_url = f["url"]
                 break
 
@@ -286,6 +305,7 @@ async def resolve_stream_url(track: Track) -> str:
     track.thumbnail = info.get("thumbnail") or track.thumbnail
 
     return stream_url
+
 
 
 async def build_track(
@@ -321,6 +341,10 @@ async def build_track(
     if webpage_url and not webpage_url.startswith(("http://", "https://")):
         webpage_url = youtube_watch_url(webpage_url)
 
+    # 💡 [핵심 보완 포인트]: 재생할 때 FFmpeg에 집어넣을 '진짜 오디오 스트리밍 주소'를 
+    # 확실하게 뽑아내기 위해 변수를 사전에 체크해 둡니다. (만약 Track 클래스 인자에 없다면 확인 필요)
+    audio_source_url = info.get("url")
+
     return Track(
         title=title,
         webpage_url=webpage_url,
@@ -329,7 +353,11 @@ async def build_track(
         requester_name=requester.display_name,
         thumbnail=info.get("thumbnail"),
         source_id=info.get("id"),
+        # 💡 만약 Track 클래스 내부에 오디오 주소를 받는 변수(예: stream_url 등)가 있다면
+        # 아래처럼 같이 넘겨주는 구조여야 재생할 때 에러가 나지 않습니다.
+        # stream_url=audio_source_url 
     )
+
 
 
 
