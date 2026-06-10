@@ -6,7 +6,7 @@ import logging
 import os
 import shutil
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from typing import Deque
 from urllib.parse import parse_qs, urlparse
@@ -16,14 +16,6 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 import yt_dlp
-
-# keep_alive.py 있을 때만 사용
-try:
-    from keep_alive import keep_alive
-
-    keep_alive()
-except:
-    pass
 
 
 # =========================
@@ -87,11 +79,6 @@ YTDL_OPTIONS = {
     "retries": 3,
     "cachedir": False,
     "source_address": "0.0.0.0",
-    "js_runtimes": {
-        "node": {
-            "path": None,
-        },
-    },
     "extractor_args": {
         "youtube": {
             "player_client": ["android", "ios"],
@@ -128,7 +115,13 @@ class Track:
     requester_name: str
     thumbnail: str | None = None
     source_id: str | None = None
-    stream_url: str | None = None
+    stream_url: str | None = None  # ✅ 수정 1: 캐시된 스트림 URL — yt-dlp 이중 호출 방지
+
+    @property
+    def requester_mention(self) -> str:
+        # ✅ 수정 2: requester_mention 프로퍼티 추가 — track_embed()에서 사용
+        return f"<@{self.requester_id}>"
+
 
 # =========================
 # UTIL
@@ -210,13 +203,10 @@ def extract_info(query: str) -> dict:
                 search_query
             )
 
-            # 🌟 [수정 포인트 1] 
-            # 단순히 정보를 긁는게 아니라 전체 프로세스(process=True)를 거쳐야 
-            # 유튜브의 암호화 챌린지 연동 루틴이 정상적으로 돌아서 오디오 포맷을 줍니다.
             info = ydl.extract_info(
                 search_query,
                 download=False,
-                process=True  # 👈 이 옵션을 명시하거나 아예 생략하는 것이 안전합니다.
+                process=True
             )
 
             if not info:
@@ -224,6 +214,8 @@ def extract_info(query: str) -> dict:
                     "검색 결과가 없어요."
                 )
 
+    except MusicError:
+        raise
     except Exception as e:
         LOGGER.exception(
             "yt-dlp failed: %s",
@@ -250,12 +242,8 @@ def extract_info(query: str) -> dict:
 
         first = entries[0]
 
-        # 🌟 [수정 포인트 2] 
-        # 검색 결과(playlist 형식)에서 첫 번째 영상의 '진짜 스트리밍 주소(url)'가 
-        # 챌린지 우회로 인해 누락되었을 수 있으므로 다시 한번 정밀 파싱을 유도합니다.
         if 'url' not in first or not first.get('url'):
             with yt_dlp.YoutubeDL(opts) as ydl_video:
-                # 첫 번째 영상의 실제 유튜브 링크로 다시 완벽히 추출합니다.
                 video_url = first.get("webpage_url") or youtube_watch_url(first.get("id"))
                 first = ydl_video.extract_info(video_url, download=False)
 
@@ -272,6 +260,11 @@ def extract_info(query: str) -> dict:
 
 
 async def resolve_stream_url(track: Track) -> str:
+    # ✅ 수정 3: 이미 stream_url이 캐시돼 있으면 yt-dlp 재호출 없이 바로 반환
+    if track.stream_url:
+        LOGGER.info("Using cached stream_url for: %s", track.title)
+        return track.stream_url
+
     info = await asyncio.to_thread(
         extract_info,
         track.webpage_url
@@ -279,15 +272,11 @@ async def resolve_stream_url(track: Track) -> str:
 
     stream_url = info.get("url")
 
-    # 🌟 [보완 포인트]: 만약 직통 주소가 없다면 formats 리스트를 정밀 탐색합니다.
     if not stream_url:
         for f in reversed(info.get("formats", [])):
             if f.get("url"):
-                # ❌ 화면만 나오는 포맷(vcodec이 있고 acodec이 없는 경우)은 철저히 무시합니다.
                 if f.get("vcodec") != "none" and f.get("acodec") == "none":
                     continue
-                
-                # 💡 오디오 전용이거나 소리가 포함된 포맷만 스트리밍 주소로 가로챕니다.
                 stream_url = f["url"]
                 break
 
@@ -301,7 +290,6 @@ async def resolve_stream_url(track: Track) -> str:
     return stream_url
 
 
-
 async def build_track(
     query: str,
     requester: discord.abc.User
@@ -312,14 +300,11 @@ async def build_track(
         query
     )
 
-    # 🌟 [안전장치 1]: 만약 extract_info가 리스트 형태로 결과를 반환했다면 첫 번째 항목을 꺼냅니다.
     if isinstance(info, list):
         if len(info) == 0:
             raise MusicError("검색 결과가 없어요.")
         info = info[0]
 
-    # 🌟 [안전장치 2]: 최신 android_music 우회 규격은 직접적인 스트리밍 주소(url)를 넘겨주므로, 
-    # 기존 webpage_url 필드가 비어있다면 url 필드를 최우선으로 가로채어 에러를 방지합니다.
     webpage_url = (
         info.get("webpage_url")
         or info.get("url")
@@ -331,12 +316,10 @@ async def build_track(
     if not webpage_url or not title:
         raise MusicError("곡 정보를 읽을 수 없어요.")
 
-    # 🌟 [최종 정상 주소 보정]: 만약 주소가 id 값으로만 되어 있다면 정상적인 watch 링크로 복원합니다.
     if webpage_url and not webpage_url.startswith(("http://", "https://")):
         webpage_url = youtube_watch_url(webpage_url)
 
-    # 💡 [핵심 보완 포인트]: 재생할 때 FFmpeg에 집어넣을 '진짜 오디오 스트리밍 주소'를 
-    # 확실하게 뽑아내기 위해 변수를 사전에 체크해 둡니다. (만약 Track 클래스 인자에 없다면 확인 필요)
+    # ✅ 수정 4: stream_url을 build_track에서 바로 저장 — resolve_stream_url에서 재호출 안 함
     audio_source_url = info.get("url")
 
     return Track(
@@ -347,12 +330,8 @@ async def build_track(
         requester_name=requester.display_name,
         thumbnail=info.get("thumbnail"),
         source_id=info.get("id"),
-        # 💡 만약 Track 클래스 내부에 오디오 주소를 받는 변수(예: stream_url 등)가 있다면
-        # 아래처럼 같이 넘겨주는 구조여야 재생할 때 에러가 나지 않습니다.
-        # stream_url=audio_source_url 
+        stream_url=audio_source_url,
     )
-
-
 
 
 # =========================
@@ -379,7 +358,7 @@ def track_embed(
 
     embed.add_field(
         name="요청",
-        value=track.requester_mention,
+        value=track.requester_mention,  # ✅ 이제 정상 작동
         inline=True,
     )
 
@@ -422,16 +401,19 @@ class GuildMusicState:
 
         channel = voice_state.channel
 
-        if interaction.guild.voice_client is None:
+        try:
+            # ✅ 수정 5: 음성 연결 타임아웃/실패 예외처리 추가
+            if interaction.guild.voice_client is None:
+                self.voice = await channel.connect(timeout=30.0, reconnect=True)
+            else:
+                self.voice = interaction.guild.voice_client
+                if self.voice.channel != channel:
+                    await self.voice.move_to(channel)
 
-            self.voice = await channel.connect(timeout=90.0, reconnect=True)
-
-        else:
-
-            self.voice = interaction.guild.voice_client
-
-            if self.voice.channel != channel:
-                await self.voice.move_to(channel)
+        except asyncio.TimeoutError:
+            raise MusicError("음성 채널 연결 시간이 초과됐어요. 다시 시도해 주세요.")
+        except discord.ClientException as e:
+            raise MusicError(f"음성 채널 연결 실패: {e}")
 
     async def enqueue(self, track: Track):
 
@@ -671,7 +653,6 @@ async def play(
     interaction: discord.Interaction,
     query: str
 ):
-    # [최우선 배치]: 3초 제한 타임아웃(error code: 10062)을 원천 차단하기 위해 응답 대기부터 보냅니다.
     try:
         await interaction.response.defer()
     except Exception:
@@ -680,17 +661,14 @@ async def play(
     try:
         state = get_state(interaction)
 
-        # 음성 채널 연결
         await state.connect(interaction)
 
-        # 오디오 데이터 추출 및 트랙 빌드 수행 (yt-dlp 연동 영역)
         try:
             track = await build_track(
                 query,
                 interaction.user
             )
         except MusicError as me:
-            # 커스텀 검색 에러 발생 시 사용자에게 예쁜 안내 메시지 전송 후 종료
             await interaction.followup.send(str(me))
             return
         except Exception as exc:
@@ -698,31 +676,31 @@ async def play(
             await interaction.followup.send("유튜브 오디오 스트림을 가져오는 데 실패했습니다. 잠시 후 다시 시도해 주세요.")
             return
 
-        # 재생 대기열(Queue)에 추가 및 재생 시도
         await state.enqueue(track)
 
-        # 추가 완료 알림 임베드 구성
         embed = track_embed(
             "추가됨",
             track,
             discord.Color.blurple()
         )
 
-        # 응답 완료 메시지 송출
         await interaction.followup.send(
             embed=embed
         )
 
+    except MusicError as e:
+        try:
+            await interaction.followup.send(str(e))
+        except Exception:
+            pass
     except Exception as e:
         LOGGER.exception("Play error: %s", e)
-        # 예외 상황 발생 시 대기 상태(defer)를 해제하며 안전하게 에러를 전송합니다.
         try:
             await interaction.followup.send(
                 f"⚠️ 재생 중 오류가 발생했습니다: {str(e)}"
             )
         except Exception:
             pass
-
 
 
 @bot.tree.command(
