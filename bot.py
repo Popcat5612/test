@@ -22,7 +22,7 @@ import yt_dlp
 # ENV
 # =========================
 
-load_dotenv()
+load_dotenv(override=True)
 
 COOKIE_PATH = "/tmp/cookies.txt"
 
@@ -115,11 +115,10 @@ class Track:
     requester_name: str
     thumbnail: str | None = None
     source_id: str | None = None
-    stream_url: str | None = None  # ✅ 수정 1: 캐시된 스트림 URL — yt-dlp 이중 호출 방지
+    stream_url: str | None = None
 
     @property
     def requester_mention(self) -> str:
-        # ✅ 수정 2: requester_mention 프로퍼티 추가 — track_embed()에서 사용
         return f"<@{self.requester_id}>"
 
 
@@ -260,7 +259,6 @@ def extract_info(query: str) -> dict:
 
 
 async def resolve_stream_url(track: Track) -> str:
-    # ✅ 수정 3: 이미 stream_url이 캐시돼 있으면 yt-dlp 재호출 없이 바로 반환
     if track.stream_url:
         LOGGER.info("Using cached stream_url for: %s", track.title)
         return track.stream_url
@@ -319,7 +317,6 @@ async def build_track(
     if webpage_url and not webpage_url.startswith(("http://", "https://")):
         webpage_url = youtube_watch_url(webpage_url)
 
-    # ✅ 수정 4: stream_url을 build_track에서 바로 저장 — resolve_stream_url에서 재호출 안 함
     audio_source_url = info.get("url")
 
     return Track(
@@ -358,7 +355,7 @@ def track_embed(
 
     embed.add_field(
         name="요청",
-        value=track.requester_mention,  # ✅ 이제 정상 작동
+        value=track.requester_mention,
         inline=True,
     )
 
@@ -402,13 +399,15 @@ class GuildMusicState:
         channel = voice_state.channel
 
         try:
-            # ✅ 수정 5: 음성 연결 타임아웃/실패 예외처리 추가
             if interaction.guild.voice_client is None:
                 self.voice = await channel.connect(timeout=30.0, reconnect=True)
+                # ✅ 수정: 연결 안정화 대기 — 연결 직후 바로 재생하면 "Not connected to voice" 에러 발생
+                await asyncio.sleep(1.5)
             else:
                 self.voice = interaction.guild.voice_client
                 if self.voice.channel != channel:
                     await self.voice.move_to(channel)
+                    await asyncio.sleep(1.0)
 
         except asyncio.TimeoutError:
             raise MusicError("음성 채널 연결 시간이 초과됐어요. 다시 시도해 주세요.")
