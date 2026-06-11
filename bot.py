@@ -467,58 +467,106 @@ class GuildMusicState:
 
     async def play_next(self):
 
-        if not self.queue:
-            self.current = None
-            return
-
-        # 음성 연결 상태 확인
-        if not self.voice or not self.voice.is_connected():
-            LOGGER.warning("Voice not connected, aborting play_next")
-            self.current = None
-            return
-
-        track = self.queue.popleft()
-
-        self.current = track
-
-        try:
-
-            stream_url = await resolve_stream_url(track)
-
-        except Exception as e:
-
-            LOGGER.exception("Stream resolve failed: %s", e)
-
-            await self.play_next()
-
-            return
-
-        source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio(
-                stream_url,
-                executable=FFMPEG_EXECUTABLE,
-                before_options=FFMPEG_BEFORE_OPTIONS,
-                options=FFMPEG_OPTIONS,
-            ),
-            volume=self.volume,
+    # Voice 연결 확인
+    if (
+        not self.voice
+        or not self.voice.is_connected()
+    ):
+        LOGGER.warning(
+            "Voice disconnected, cancelling playback"
         )
 
-        loop = asyncio.get_running_loop()
+        self.current = None
+        return
 
-        def after_play(error):
+    if not self.queue:
 
-            if error:
-                LOGGER.error("Player error: %s", error)
+        self.current = None
+        return
 
+    track = self.queue.popleft()
+
+    self.current = track
+
+    try:
+
+        stream_url = await resolve_stream_url(track)
+
+    except Exception as e:
+
+        LOGGER.exception(
+            "Stream resolve failed: %s",
+            e
+        )
+
+        self.current = None
+
+        if self.queue:
+            await self.play_next()
+
+        return
+
+    # resolve 중 연결 끊겼는지 재확인
+    if (
+        not self.voice
+        or not self.voice.is_connected()
+    ):
+        LOGGER.warning(
+            "Voice disconnected after resolve"
+        )
+
+        self.current = None
+        return
+
+    source = discord.PCMVolumeTransformer(
+        discord.FFmpegPCMAudio(
+            stream_url,
+            executable=FFMPEG_EXECUTABLE,
+            before_options=FFMPEG_BEFORE_OPTIONS,
+            options=FFMPEG_OPTIONS,
+        ),
+        volume=self.volume,
+    )
+
+    loop = asyncio.get_running_loop()
+
+    def after_play(error):
+
+        if error:
+            LOGGER.error(
+                "Player error: %s",
+                error
+            )
+
+        if (
+            self.voice
+            and self.voice.is_connected()
+        ):
             asyncio.run_coroutine_threadsafe(
                 self.play_next(),
                 loop
             )
 
+    try:
+
         self.voice.play(
             source,
             after=after_play
         )
+
+        LOGGER.info(
+            "Now playing: %s",
+            track.title
+        )
+
+    except discord.ClientException as e:
+
+        LOGGER.exception(
+            "Voice play failed: %s",
+            e
+        )
+
+        self.current = None
 
     async def skip(self):
 
@@ -884,6 +932,22 @@ async def on_ready():
         "Logged in as %s",
         bot.user
     )
+
+
+@bot.event
+async def on_voice_state_update(
+    member,
+    before,
+    after
+):
+
+    if bot.user and member.id == bot.user.id:
+
+        LOGGER.info(
+            "VOICE STATE: %s -> %s",
+            before.channel,
+            after.channel
+        )
 
 
 @bot.event
