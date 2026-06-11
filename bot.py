@@ -386,59 +386,95 @@ class GuildMusicState:
 
         self.lock = asyncio.Lock()
 
-    async def connect(self, interaction: discord.Interaction):
+   async def connect(self, interaction: discord.Interaction):
 
-        if interaction.guild is None:
-            raise MusicError("서버에서만 사용 가능")
+    if interaction.guild is None:
+        raise MusicError("서버에서만 사용 가능")
 
-        voice_state = getattr(interaction.user, "voice", None)
+    voice_state = getattr(interaction.user, "voice", None)
 
-        if voice_state is None or voice_state.channel is None:
-            raise MusicError("먼저 음성 채널에 들어가 주세요.")
+    if voice_state is None or voice_state.channel is None:
+        raise MusicError("먼저 음성 채널에 들어가 주세요.")
 
-        channel = voice_state.channel
+    channel = voice_state.channel
 
-        try:
-            if interaction.guild.voice_client is None:
-                self.voice = await channel.connect(timeout=30.0, reconnect=True)
-                # ✅ 수정: 연결 안정화 대기 — 연결 직후 바로 재생하면 "Not connected to voice" 에러 발생
-                await asyncio.sleep(1.5)
-            else:
-                self.voice = interaction.guild.voice_client
-                if self.voice.channel != channel:
-                    await self.voice.move_to(channel)
-                    await asyncio.sleep(1.0)
+    vc = interaction.guild.voice_client
 
-        except asyncio.TimeoutError:
-            raise MusicError("음성 채널 연결 시간이 초과됐어요. 다시 시도해 주세요.")
-        except discord.ClientException as e:
-            raise MusicError(f"음성 채널 연결 실패: {e}")
+    try:
 
-    async def enqueue(self, track: Track):
+        if vc:
 
-        async with self.lock:
+            if vc.is_connected():
 
-            self.queue.append(track)
+                self.voice = vc
 
-            if not self.is_playing():
-                await self.play_next()
+                if vc.channel != channel:
+                    await vc.move_to(channel)
+                    await asyncio.sleep(1)
 
-    def is_playing(self):
+                return
 
-        return (
-            self.voice
-            and (
-                self.voice.is_playing()
-                or self.voice.is_paused()
-            )
+            try:
+                await vc.disconnect(force=True)
+                await asyncio.sleep(2)
+            except Exception:
+                pass
+
+        LOGGER.info("VOICE CONNECT START")
+
+        self.voice = await channel.connect(
+            timeout=60.0
+        )
+
+        for _ in range(20):
+
+            if self.voice and self.voice.is_connected():
+
+                LOGGER.info("VOICE CONNECT SUCCESS")
+
+                await asyncio.sleep(2)
+                return
+
+            await asyncio.sleep(0.5)
+
+        raise MusicError(
+            "음성 채널 연결에 실패했어요."
+        )
+
+    except MusicError:
+        raise
+
+    except asyncio.TimeoutError:
+        raise MusicError(
+            "음성 채널 연결 시간이 초과됐어요."
+        )
+
+    except discord.ClientException as e:
+        raise MusicError(
+            f"음성 채널 연결 실패: {e}"
+        )
+
+    except Exception as e:
+
+        LOGGER.exception(
+            "VOICE CONNECT ERROR: %s",
+            e
+        )
+
+        raise MusicError(
+            f"알 수 없는 음성 연결 오류: {e}"
         )
 
     async def play_next(self):
 
         if not self.queue:
-
             self.current = None
+            return
 
+        # 음성 연결 상태 확인
+        if not self.voice or not self.voice.is_connected():
+            LOGGER.warning("Voice not connected, aborting play_next")
+            self.current = None
             return
 
         track = self.queue.popleft()
@@ -848,6 +884,22 @@ async def on_ready():
         "Logged in as %s",
         bot.user
     )
+
+
+@bot.event
+async def on_voice_state_update(
+    member,
+    before,
+    after
+):
+
+    if bot.user and member.id == bot.user.id:
+
+        LOGGER.info(
+            "VOICE STATE: %s -> %s",
+            before.channel,
+            after.channel
+        )
 
 
 # =========================
