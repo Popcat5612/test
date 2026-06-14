@@ -133,42 +133,23 @@ def youtube_watch_url(video_id: str) -> str:
 def youtube_video_id_from_url(url: str | None) -> str | None:
     if not url:
         return None
-
     parsed = urlparse(url)
-
     if parsed.hostname == "youtu.be":
         return parsed.path[1:]
-
     if parsed.hostname and "youtube" in parsed.hostname:
         query = parse_qs(parsed.query)
         return query.get("v", [None])[0]
-
     return None
 
 
 def format_duration(seconds: int | None) -> str:
     if seconds is None:
         return "알 수 없음"
-
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-
     if hours:
         return f"{hours}:{minutes:02}:{seconds:02}"
-
     return f"{minutes}:{seconds:02}"
-
-
-def parse_volume_percent(value: str) -> int:
-    try:
-        value = int(value)
-    except:
-        raise MusicError("숫자를 입력해 주세요.")
-
-    if value < 0 or value > 100:
-        raise MusicError("0~100 사이만 가능해요.")
-
-    return value
 
 
 # =========================
@@ -178,16 +159,9 @@ def parse_volume_percent(value: str) -> int:
 def extract_info(query: str) -> dict:
     opts = copy.deepcopy(YTDL_OPTIONS)
 
-    LOGGER.info(
-        "Cookie exists: %s",
-        os.path.exists(COOKIE_PATH)
-    )
+    LOGGER.info("Cookie exists: %s", os.path.exists(COOKIE_PATH))
 
     if os.path.exists(COOKIE_PATH):
-        LOGGER.info(
-            "Using cookie file: %s",
-            COOKIE_PATH
-        )
         opts["cookiefile"] = COOKIE_PATH
 
     try:
@@ -197,51 +171,28 @@ def extract_info(query: str) -> dict:
             else:
                 search_query = f"ytsearch1:{query}"
 
-            LOGGER.info(
-                "Searching: %s",
-                search_query
-            )
+            LOGGER.info("Searching: %s", search_query)
 
-            info = ydl.extract_info(
-                search_query,
-                download=False,
-                process=True
-            )
+            info = ydl.extract_info(search_query, download=False, process=True)
 
             if not info:
-                raise MusicError(
-                    "검색 결과가 없어요."
-                )
+                raise MusicError("검색 결과가 없어요.")
 
     except MusicError:
         raise
     except Exception as e:
-        LOGGER.exception(
-            "yt-dlp failed: %s",
-            e
-        )
-        raise MusicError(
-            "유튜브 정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요."
-        )
+        LOGGER.exception("yt-dlp failed: %s", e)
+        raise MusicError("유튜브 정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.")
 
-    if (
-        isinstance(info, dict)
-        and info.get("_type") == "playlist"
-    ):
-        entries = [
-            entry
-            for entry in info.get("entries", [])
-            if entry
-        ]
+    if isinstance(info, dict) and info.get("_type") == "playlist":
+        entries = [e for e in info.get("entries", []) if e]
 
         if not entries:
-            raise MusicError(
-                "검색 결과가 없어요."
-            )
+            raise MusicError("검색 결과가 없어요.")
 
         first = entries[0]
 
-        if 'url' not in first or not first.get('url'):
+        if not first.get("url"):
             with yt_dlp.YoutubeDL(opts) as ydl_video:
                 video_url = first.get("webpage_url") or youtube_watch_url(first.get("id"))
                 first = ydl_video.extract_info(video_url, download=False)
@@ -249,9 +200,7 @@ def extract_info(query: str) -> dict:
         if not first.get("webpage_url"):
             video_id = first.get("id")
             if video_id:
-                first["webpage_url"] = (
-                    youtube_watch_url(video_id)
-                )
+                first["webpage_url"] = youtube_watch_url(video_id)
 
         return first
 
@@ -263,10 +212,7 @@ async def resolve_stream_url(track: Track) -> str:
         LOGGER.info("Using cached stream_url for: %s", track.title)
         return track.stream_url
 
-    info = await asyncio.to_thread(
-        extract_info,
-        track.webpage_url
-    )
+    info = await asyncio.to_thread(extract_info, track.webpage_url)
 
     stream_url = info.get("url")
 
@@ -288,18 +234,11 @@ async def resolve_stream_url(track: Track) -> str:
     return stream_url
 
 
-async def build_track(
-    query: str,
-    requester: discord.abc.User
-) -> Track:
-
-    info = await asyncio.to_thread(
-        extract_info,
-        query
-    )
+async def build_track(query: str, requester: discord.abc.User) -> Track:
+    info = await asyncio.to_thread(extract_info, query)
 
     if isinstance(info, list):
-        if len(info) == 0:
+        if not info:
             raise MusicError("검색 결과가 없어요.")
         info = info[0]
 
@@ -308,16 +247,13 @@ async def build_track(
         or info.get("url")
         or info.get("original_url")
     )
-
     title = info.get("title")
 
     if not webpage_url or not title:
         raise MusicError("곡 정보를 읽을 수 없어요.")
 
-    if webpage_url and not webpage_url.startswith(("http://", "https://")):
+    if not webpage_url.startswith(("http://", "https://")):
         webpage_url = youtube_watch_url(webpage_url)
-
-    audio_source_url = info.get("url")
 
     return Track(
         title=title,
@@ -327,7 +263,7 @@ async def build_track(
         requester_name=requester.display_name,
         thumbnail=info.get("thumbnail"),
         source_id=info.get("id"),
-        stream_url=audio_source_url,
+        stream_url=info.get("url"),
     )
 
 
@@ -335,33 +271,16 @@ async def build_track(
 # EMBED
 # =========================
 
-def track_embed(
-    title: str,
-    track: Track,
-    color: discord.Color
-) -> discord.Embed:
-
+def track_embed(title: str, track: Track, color: discord.Color) -> discord.Embed:
     embed = discord.Embed(
         title=title,
         description=f"[{track.title}]({track.webpage_url})",
         color=color,
     )
-
-    embed.add_field(
-        name="길이",
-        value=format_duration(track.duration),
-        inline=True,
-    )
-
-    embed.add_field(
-        name="요청",
-        value=track.requester_mention,
-        inline=True,
-    )
-
+    embed.add_field(name="길이", value=format_duration(track.duration), inline=True)
+    embed.add_field(name="요청", value=track.requester_mention, inline=True)
     if track.thumbnail:
         embed.set_thumbnail(url=track.thumbnail)
-
     return embed
 
 
@@ -372,294 +291,150 @@ def track_embed(
 class GuildMusicState:
 
     def __init__(self, bot, guild_id: int):
-
         self.bot = bot
         self.guild_id = guild_id
-
         self.queue: Deque[Track] = deque()
-
         self.current: Track | None = None
-
         self.voice: discord.VoiceClient | None = None
-
         self.volume = 0.7
-
         self.lock = asyncio.Lock()
 
-   async def connect(self, interaction: discord.Interaction):
+    async def connect(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            raise MusicError("서버에서만 사용 가능")
 
-    if interaction.guild is None:
-        raise MusicError("서버에서만 사용 가능")
+        voice_state = getattr(interaction.user, "voice", None)
+        if voice_state is None or voice_state.channel is None:
+            raise MusicError("먼저 음성 채널에 들어가 주세요.")
 
-    voice_state = getattr(interaction.user, "voice", None)
+        channel = voice_state.channel
+        vc = interaction.guild.voice_client
 
-    if voice_state is None or voice_state.channel is None:
-        raise MusicError("먼저 음성 채널에 들어가 주세요.")
+        try:
+            if vc:
+                if vc.is_connected():
+                    self.voice = vc
+                    if vc.channel != channel:
+                        await vc.move_to(channel)
+                        await asyncio.sleep(1)
+                    return
+                try:
+                    await vc.disconnect(force=True)
+                    await asyncio.sleep(2)
+                except Exception:
+                    pass
 
-    channel = voice_state.channel
+            LOGGER.info("VOICE CONNECT START")
+            self.voice = await channel.connect(timeout=60.0)
 
-    vc = interaction.guild.voice_client
+            # 실제로 연결될 때까지 최대 10초 대기
+            for _ in range(20):
+                if self.voice and self.voice.is_connected():
+                    LOGGER.info("VOICE CONNECT SUCCESS")
+                    await asyncio.sleep(2)
+                    return
+                await asyncio.sleep(0.5)
 
-    try:
+            raise MusicError("음성 채널 연결에 실패했어요.")
 
-        if vc:
+        except MusicError:
+            raise
+        except asyncio.TimeoutError:
+            raise MusicError("음성 채널 연결 시간이 초과됐어요.")
+        except discord.ClientException as e:
+            raise MusicError(f"음성 채널 연결 실패: {e}")
 
-            if vc.is_connected():
+    async def enqueue(self, track: Track):
+        async with self.lock:
+            self.queue.append(track)
+            if not self.is_playing():
+                await self.play_next()
 
-                self.voice = vc
-
-                if vc.channel != channel:
-                    await vc.move_to(channel)
-                    await asyncio.sleep(1)
-
-                return
-
-            try:
-                await vc.disconnect(force=True)
-                await asyncio.sleep(2)
-            except Exception:
-                pass
-
-        LOGGER.info("VOICE CONNECT START")
-
-        self.voice = await channel.connect(
-            timeout=60.0
-        )
-
-        for _ in range(20):
-
-            if self.voice and self.voice.is_connected():
-
-                LOGGER.info("VOICE CONNECT SUCCESS")
-
-                await asyncio.sleep(2)
-                return
-
-            await asyncio.sleep(0.5)
-
-        raise MusicError(
-            "음성 채널 연결에 실패했어요."
-        )
-
-    except MusicError:
-        raise
-
-    except asyncio.TimeoutError:
-        raise MusicError(
-            "음성 채널 연결 시간이 초과됐어요."
-        )
-
-    except discord.ClientException as e:
-        raise MusicError(
-            f"음성 채널 연결 실패: {e}"
-        )
-
-    except Exception as e:
-
-        LOGGER.exception(
-            "VOICE CONNECT ERROR: %s",
-            e
-        )
-
-        raise MusicError(
-            f"알 수 없는 음성 연결 오류: {e}"
+    def is_playing(self):
+        return (
+            self.voice
+            and (self.voice.is_playing() or self.voice.is_paused())
         )
 
     async def play_next(self):
+        # 음성 연결 확인
+        if not self.voice or not self.voice.is_connected():
+            LOGGER.warning("Voice disconnected, cancelling playback")
+            self.current = None
+            return
 
-    # Voice 연결 확인
-    if (
-        not self.voice
-        or not self.voice.is_connected()
-    ):
-        LOGGER.warning(
-            "Voice disconnected, cancelling playback"
+        if not self.queue:
+            self.current = None
+            return
+
+        track = self.queue.popleft()
+        self.current = track
+
+        try:
+            stream_url = await resolve_stream_url(track)
+        except Exception as e:
+            LOGGER.exception("Stream resolve failed: %s", e)
+            self.current = None
+            if self.queue:
+                await self.play_next()
+            return
+
+        # resolve 중 연결 끊겼는지 재확인
+        if not self.voice or not self.voice.is_connected():
+            LOGGER.warning("Voice disconnected after resolve")
+            self.current = None
+            return
+
+        source = discord.PCMVolumeTransformer(
+            discord.FFmpegPCMAudio(
+                stream_url,
+                executable=FFMPEG_EXECUTABLE,
+                before_options=FFMPEG_BEFORE_OPTIONS,
+                options=FFMPEG_OPTIONS,
+            ),
+            volume=self.volume,
         )
 
-        self.current = None
-        return
+        loop = asyncio.get_running_loop()
 
-    if not self.queue:
+        def after_play(error):
 
-        self.current = None
-        return
-
-    track = self.queue.popleft()
-
-    self.current = track
-
-    try:
-
-        stream_url = await resolve_stream_url(track)
-
-    except Exception as e:
-
-        LOGGER.exception(
-            "Stream resolve failed: %s",
-            e
-        )
-
-        self.current = None
-
-        if self.queue:
-            await self.play_next()
-
-        return
-
-    # resolve 중 연결 끊겼는지 재확인
-    if (
-        not self.voice
-        or not self.voice.is_connected()
-    ):
-        LOGGER.warning(
-            "Voice disconnected after resolve"
-        )
-
-        self.current = None
-        return
-
-    source = discord.PCMVolumeTransformer(
-        discord.FFmpegPCMAudio(
-            stream_url,
-            executable=FFMPEG_EXECUTABLE,
-            before_options=FFMPEG_BEFORE_OPTIONS,
-            options=FFMPEG_OPTIONS,
-        ),
-        volume=self.volume,
-    )
-
-    loop = asyncio.get_running_loop()
-
-    def after_play(error):
-
-        if error:
-            LOGGER.error(
-                "Player error: %s",
-                error
-            )
-
-        if (
-            self.voice
-            and self.voice.is_connected()
-        ):
-            asyncio.run_coroutine_threadsafe(
-                self.play_next(),
-                loop
-            )
-
-    try:
-
-        self.voice.play(
-            source,
-            after=after_play
-        )
-
-        LOGGER.info(
-            "Now playing: %s",
-            track.title
-        )
-
-    except discord.ClientException as e:
-
-        LOGGER.exception(
-            "Voice play failed: %s",
-            e
-        )
-
-        self.current = None
-
-    async def skip(self):
-
-        if self.voice and self.voice.is_playing():
-            self.voice.stop()
-            return True
-
-        return False
-
-    async def pause(self):
-
-        if self.voice and self.voice.is_playing():
-            self.voice.pause()
-            return True
-
-        return False
-
-    async def resume(self):
-
-        if self.voice and self.voice.is_paused():
-            self.voice.resume()
-            return True
-
-        return False
-
-    async def stop(self):
-
-        self.queue.clear()
-
-        self.current = None
-
-        if self.voice:
-
-            if self.voice.is_playing():
-                self.voice.stop()
-
-            await self.voice.disconnect()
-
-            self.voice = None
-
-    async def set_volume(self, percent: int):
-
-        self.volume = percent / 100
-
-        if (
-            self.voice
-            and isinstance(
-                self.voice.source,
-                discord.PCMVolumeTransformer
-            )
-        ):
-            self.voice.source.volume = self.volume
-
-    async def queue_embed(self):
-
-        embed = discord.Embed(
-            title="대기열",
-            color=discord.Color.green()
-        )
-
-        if self.current:
-
-            embed.add_field(
-                name="현재곡",
-                value=(
-                    f"[{self.current.title}]"
-                    f"({self.current.webpage_url})"
-                ),
-                inline=False
-            )
-
-        if self.queue:
-
-            lines = []
-
-            for i, track in enumerate(self.queue, start=1):
-
-                lines.append(
-                    f"{i}. "
-                    f"[{track.title}]"
-                    f"({track.webpage_url})"
+            if error:
+                LOGGER.error(
+                    "Player error: %s",
+                    error
                 )
 
-            embed.add_field(
-                name="다음곡",
-                value="\n".join(lines[:10]),
-                inline=False
+            if (
+                self.voice
+                and self.voice.is_connected()
+            ):
+                asyncio.run_coroutine_threadsafe(
+                    self.play_next(),
+                    loop
+                )
+
+        try:
+
+            self.voice.play(
+                source,
+                after=after_play
             )
 
-        if not self.current and not self.queue:
-            embed.description = "대기열 비어있음"
+            LOGGER.info(
+                "Now playing: %s",
+                track.title
+            )
 
-        return embed
+        except discord.ClientException as e:
+
+            LOGGER.exception(
+                "Voice play failed: %s",
+                e
+            )
+
+            self.current = None
+            return
 
 
 # =========================
@@ -669,47 +444,21 @@ class GuildMusicState:
 class MusicBot(commands.Bot):
 
     def __init__(self):
-
         intents = discord.Intents.default()
-
-        super().__init__(
-            command_prefix="!",
-            intents=intents
-        )
-
+        super().__init__(command_prefix="!", intents=intents)
         self.states = {}
 
     async def setup_hook(self):
-
         if DISCORD_GUILD_ID:
-
-            guild = discord.Object(
-                id=int(DISCORD_GUILD_ID)
-            )
-
-            self.tree.copy_global_to(
-                guild=guild
-            )
-
-            await self.tree.sync(
-                guild=guild
-            )
-
+            guild = discord.Object(id=int(DISCORD_GUILD_ID))
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
         else:
-
             await self.tree.sync()
 
     def get_state(self, guild_id: int):
-
         if guild_id not in self.states:
-
-            self.states[guild_id] = (
-                GuildMusicState(
-                    self,
-                    guild_id
-                )
-            )
-
+            self.states[guild_id] = GuildMusicState(self, guild_id)
         return self.states[guild_id]
 
 
@@ -721,21 +470,13 @@ bot = MusicBot()
 # =========================
 
 def get_state(interaction):
-
     if interaction.guild_id is None:
         raise MusicError("서버에서만 사용 가능")
-
     return bot.get_state(interaction.guild_id)
 
 
-@bot.tree.command(
-    name="재생",
-    description="음악 재생"
-)
-async def play(
-    interaction: discord.Interaction,
-    query: str
-):
+@bot.tree.command(name="재생", description="음악 재생")
+async def play(interaction: discord.Interaction, query: str):
     try:
         await interaction.response.defer()
     except Exception:
@@ -743,33 +484,21 @@ async def play(
 
     try:
         state = get_state(interaction)
-
         await state.connect(interaction)
 
         try:
-            track = await build_track(
-                query,
-                interaction.user
-            )
+            track = await build_track(query, interaction.user)
         except MusicError as me:
             await interaction.followup.send(str(me))
             return
         except Exception as exc:
             LOGGER.exception("Track building failed: %s", exc)
-            await interaction.followup.send("유튜브 오디오 스트림을 가져오는 데 실패했습니다. 잠시 후 다시 시도해 주세요.")
+            await interaction.followup.send("유튜브 오디오 스트림을 가져오는 데 실패했습니다.")
             return
 
         await state.enqueue(track)
-
-        embed = track_embed(
-            "추가됨",
-            track,
-            discord.Color.blurple()
-        )
-
-        await interaction.followup.send(
-            embed=embed
-        )
+        embed = track_embed("추가됨", track, discord.Color.blurple())
+        await interaction.followup.send(embed=embed)
 
     except MusicError as e:
         try:
@@ -779,191 +508,82 @@ async def play(
     except Exception as e:
         LOGGER.exception("Play error: %s", e)
         try:
-            await interaction.followup.send(
-                f"⚠️ 재생 중 오류가 발생했습니다: {str(e)}"
-            )
+            await interaction.followup.send(f"⚠️ 재생 중 오류가 발생했습니다: {str(e)}")
         except Exception:
             pass
 
 
-@bot.tree.command(
-    name="건너뛰기",
-    description="현재곡 스킵"
-)
+@bot.tree.command(name="건너뛰기", description="현재곡 스킵")
 async def skip(interaction: discord.Interaction):
-
     state = get_state(interaction)
-
-    skipped = await state.skip()
-
-    if skipped:
-        await interaction.response.send_message(
-            "건너뜀"
-        )
+    if await state.skip():
+        await interaction.response.send_message("건너뜀")
     else:
-        await interaction.response.send_message(
-            "재생중인 곡 없음"
-        )
+        await interaction.response.send_message("재생중인 곡 없음")
 
 
-@bot.tree.command(
-    name="일시정지",
-    description="일시정지"
-)
+@bot.tree.command(name="일시정지", description="일시정지")
 async def pause(interaction: discord.Interaction):
-
     state = get_state(interaction)
-
-    paused = await state.pause()
-
-    if paused:
-        await interaction.response.send_message(
-            "일시정지됨"
-        )
+    if await state.pause():
+        await interaction.response.send_message("일시정지됨")
     else:
-        await interaction.response.send_message(
-            "재생중인 곡 없음"
-        )
+        await interaction.response.send_message("재생중인 곡 없음")
 
 
-@bot.tree.command(
-    name="다시재생",
-    description="다시 재생"
-)
+@bot.tree.command(name="다시재생", description="다시 재생")
 async def resume(interaction: discord.Interaction):
-
     state = get_state(interaction)
-
-    resumed = await state.resume()
-
-    if resumed:
-        await interaction.response.send_message(
-            "다시 재생"
-        )
+    if await state.resume():
+        await interaction.response.send_message("다시 재생")
     else:
-        await interaction.response.send_message(
-            "일시정지 상태 아님"
-        )
+        await interaction.response.send_message("일시정지 상태 아님")
 
 
-@bot.tree.command(
-    name="정지",
-    description="정지 후 퇴장"
-)
+@bot.tree.command(name="정지", description="정지 후 퇴장")
 async def stop(interaction: discord.Interaction):
-
     state = get_state(interaction)
-
     await state.stop()
-
-    await interaction.response.send_message(
-        "정지 완료"
-    )
+    await interaction.response.send_message("정지 완료")
 
 
-@bot.tree.command(
-    name="볼륨",
-    description="볼륨 변경"
-)
-async def volume(
-    interaction: discord.Interaction,
-    percent: app_commands.Range[int, 0, 100]
-):
-
+@bot.tree.command(name="볼륨", description="볼륨 변경")
+async def volume(interaction: discord.Interaction, percent: app_commands.Range[int, 0, 100]):
     state = get_state(interaction)
-
     await state.set_volume(percent)
-
-    await interaction.response.send_message(
-        f"볼륨 {percent}%"
-    )
+    await interaction.response.send_message(f"볼륨 {percent}%")
 
 
-@bot.tree.command(
-    name="대기열",
-    description="대기열 보기"
-)
+@bot.tree.command(name="대기열", description="대기열 보기")
 async def queue(interaction: discord.Interaction):
-
     state = get_state(interaction)
-
     embed = await state.queue_embed()
-
-    await interaction.response.send_message(
-        embed=embed
-    )
+    await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(
-    name="현재곡",
-    description="현재곡 보기"
-)
+@bot.tree.command(name="현재곡", description="현재곡 보기")
 async def now(interaction: discord.Interaction):
-
     state = get_state(interaction)
-
     if not state.current:
-
-        await interaction.response.send_message(
-            "재생중인 곡 없음"
-        )
-
+        await interaction.response.send_message("재생중인 곡 없음")
         return
-
-    embed = track_embed(
-        "현재 재생중",
-        state.current,
-        discord.Color.green()
-    )
-
-    await interaction.response.send_message(
-        embed=embed
-    )
+    embed = track_embed("현재 재생중", state.current, discord.Color.green())
+    await interaction.response.send_message(embed=embed)
 
 
 # =========================
-# READY
+# EVENTS
 # =========================
 
 @bot.event
 async def on_ready():
-
-    LOGGER.info(
-        "Logged in as %s",
-        bot.user
-    )
+    LOGGER.info("Logged in as %s", bot.user)
 
 
 @bot.event
-async def on_voice_state_update(
-    member,
-    before,
-    after
-):
-
+async def on_voice_state_update(member, before, after):
     if bot.user and member.id == bot.user.id:
-
-        LOGGER.info(
-            "VOICE STATE: %s -> %s",
-            before.channel,
-            after.channel
-        )
-
-
-@bot.event
-async def on_voice_state_update(
-    member,
-    before,
-    after
-):
-
-    if bot.user and member.id == bot.user.id:
-
-        LOGGER.info(
-            "VOICE STATE: %s -> %s",
-            before.channel,
-            after.channel
-        )
+        LOGGER.info("VOICE STATE: %s -> %s", before.channel, after.channel)
 
 
 # =========================
@@ -971,12 +591,8 @@ async def on_voice_state_update(
 # =========================
 
 def main():
-
     if not DISCORD_TOKEN:
-        raise RuntimeError(
-            "DISCORD_TOKEN 없음"
-        )
-
+        raise RuntimeError("DISCORD_TOKEN 없음")
     bot.run(DISCORD_TOKEN)
 
 
