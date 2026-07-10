@@ -356,6 +356,80 @@ class GuildMusicState:
             and (self.voice.is_playing() or self.voice.is_paused())
         )
 
+    async def skip(self) -> bool:
+        if self.voice and (self.voice.is_playing() or self.voice.is_paused()):
+            # stop()이 after_play 콜백을 호출해서 자동으로 다음 곡을 재생함
+            self.voice.stop()
+            return True
+        return False
+
+    async def pause(self) -> bool:
+        if self.voice and self.voice.is_playing():
+            self.voice.pause()
+            return True
+        return False
+
+    async def resume(self) -> bool:
+        if self.voice and self.voice.is_paused():
+            self.voice.resume()
+            return True
+        return False
+
+    async def stop(self):
+        async with self.lock:
+            self.queue.clear()
+            self.current = None
+            if self.voice:
+                try:
+                    if self.voice.is_playing() or self.voice.is_paused():
+                        self.voice.stop()
+                    await self.voice.disconnect(force=True)
+                except Exception:
+                    LOGGER.exception("Voice disconnect failed")
+                finally:
+                    self.voice = None
+
+    async def set_volume(self, percent: int):
+        self.volume = max(0, min(100, percent)) / 100
+        if (
+            self.voice
+            and self.voice.source
+            and isinstance(self.voice.source, discord.PCMVolumeTransformer)
+        ):
+            self.voice.source.volume = self.volume
+
+    async def queue_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="대기열", color=discord.Color.blurple())
+
+        if self.current:
+            embed.add_field(
+                name="현재 재생중",
+                value=(
+                    f"[{self.current.title}]({self.current.webpage_url}) "
+                    f"({format_duration(self.current.duration)})"
+                ),
+                inline=False,
+            )
+
+        if not self.queue:
+            if not self.current:
+                embed.description = "대기열이 비어 있어요."
+            return embed
+
+        lines = []
+        for i, track in enumerate(list(self.queue)[:10], start=1):
+            lines.append(
+                f"{i}. [{track.title}]({track.webpage_url}) "
+                f"({format_duration(track.duration)})"
+            )
+
+        remaining = len(self.queue) - 10
+        if remaining > 0:
+            lines.append(f"... 외 {remaining}곡")
+
+        embed.add_field(name=f"대기중 ({len(self.queue)}곡)", value="\n".join(lines), inline=False)
+        return embed
+
     async def play_next(self):
         # 음성 연결 확인
         if not self.voice or not self.voice.is_connected():
@@ -572,6 +646,29 @@ async def now(interaction: discord.Interaction):
 
 
 # =========================
+# ERROR HANDLER
+# =========================
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    original = getattr(error, "original", error)
+
+    if isinstance(original, MusicError):
+        message = str(original)
+    else:
+        LOGGER.exception("Command error: %s", original)
+        message = "⚠️ 명령어 처리 중 오류가 발생했어요."
+
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except Exception:
+        pass
+
+
+# =========================
 # EVENTS
 # =========================
 
@@ -593,6 +690,14 @@ async def on_voice_state_update(member, before, after):
 def main():
     if not DISCORD_TOKEN:
         raise RuntimeError("DISCORD_TOKEN 없음")
+
+    # Render Web Service는 HTTP 포트가 열려 있어야 하므로 keep-alive 서버 실행
+    try:
+        from keep_alive import keep_alive
+        keep_alive()
+    except Exception:
+        LOGGER.warning("keep_alive 서버 시작 실패 (로컬 실행이면 무시해도 됨)")
+
     bot.run(DISCORD_TOKEN)
 
 
